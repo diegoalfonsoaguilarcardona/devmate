@@ -3,7 +3,7 @@
 DevMate is my “pseudo‑agentic” way to code with AI in VS Code. Instead of letting an autonomous agent spin up tools, hallucinate tasks, or loop on errors, you stay in control of the context at every step: choose which messages, files (content or references), images, and prompts to include and then send. I’ve used this workflow daily for 2+ years, it’s stable, avoids runaway loops, and keeps costs predictable (I average around $10/month across LLM providers). It complements faster, fully agentic IDEs (e.g., Cline, Cursor, Antigravity, Claude Code) but prioritizes reliability, determinism, and low burn. For many day‑to‑day tasks, this “pseudo‑agentic development” works better in practice.
 
 <p align="center">
-  <img src="resources/extensionIcon.png" alt="Extension Icon" width="50%" height="auto">
+  <img src="resources/extensionIconColor.png" alt="Extension Icon" width="50%" height="auto">
 </p>
 
 - Publisher: diegoalfonsoaguilarcardona
