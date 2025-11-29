@@ -1,18 +1,22 @@
 # DevMate AI Chat
 
-Use ChatGPT, GPT‑4, and compatible APIs right inside VS Code to enhance and automate your coding with AI‑powered assistance. DevMate provides a flexible provider/model selector, rich chat UI with streaming, reasoning deltas, token stats, file/content references, images, YAML import/export, and more.
+DevMate is my “pseudo‑agentic” way to code with AI in VS Code. Instead of letting an autonomous agent spin up tools, hallucinate tasks, or loop on errors, you stay in control of the context at every step: choose which messages, files (content or references), images, and prompts to include and then send. I’ve used this workflow daily for 2+ years, it’s stable, avoids runaway loops, and keeps costs predictable (I average around $10/month across LLM providers). It complements faster, fully agentic IDEs (e.g., Cline, Cursor, Antigravity, Claude Code) but prioritizes reliability, determinism, and low burn. For many day‑to‑day tasks, this “pseudo‑agentic development” works better in practice.
 
-- Publisher: diegoaac
-- Extension ID: diegoaac.devmate-ai-chat
+<p align="center">
+  <img src="resources/extensionIcon.png" alt="Extension Icon" width="50%" height="auto">
+</p>
+
+- Publisher: diegoalfonsoaguilarcardona
+- Extension ID: diegoalfonsoaguilarcardona.devmate-ai-chat
 - License: MIT
-- Min VS Code: 1.73.0
+- VS Code: ≥ 1.73.0
 
 ---
 
 ## Table of Contents
 
+- [Why DevMate (Pseudo‑Agentic)](#why-devmate-pseudoagentic)
 - [Features](#features)
-- [Screens & UX Highlights](#screens--ux-highlights)
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
@@ -21,7 +25,7 @@ Use ChatGPT, GPT‑4, and compatible APIs right inside VS Code to enhance and au
 	- [System Prompts (devmate.prompts)](#system-prompts-devmateprompts)
 	- [Behavior Settings](#behavior-settings)
 - [Usage](#usage)
-	- [The Chat View](#the-chat-view)
+	- [Chat View](#chat-view)
 	- [Commands & Menus](#commands--menus)
 	- [Working with Files and Images](#working-with-files-and-images)
 	- [YAML Import/Export](#yaml-importexport)
@@ -40,53 +44,47 @@ Use ChatGPT, GPT‑4, and compatible APIs right inside VS Code to enhance and au
 	- [Providers & APIs](#providers--apis)
 	- [Compatibility Notes](#compatibility-notes)
 - [Changelog](#changelog)
+- [Credits](#credits)
 - [License](#license)
+
+---
+
+## Why DevMate (Pseudo‑Agentic)
+
+- Stay in control: You decide the exact context per request (which prior messages, what file content vs. lightweight references, which images, which prompt).
+- Cut waste and loops: No endless tool runs or agent loops. Keep requests focused and auditable.
+- Predictable cost: Tight prompts and scoped context mean much lower token use; this has kept my monthly spend around ~$10.
+- Practical day‑to‑day: In many coding tasks, this hands‑on approach beats fully agentic systems for reliability and speed to “good enough.”
 
 ---
 
 ## Features
 
-- Provider and Model selectors with per‑model API type:
-	- Chat Completions (e.g., gpt-4o-mini, compatible endpoints)
-	- Responses API (OpenAI v6+ Responses with tools and reasoning)
-- Streaming output with low-latency rendering
-	- Shows reasoning deltas in a distinct style while streaming (not persisted to history)
-- Token stats bar: total, last used (prompt+completion), and current model
-- Rich chat controls per message:
-	- Include/Exclude message from context (checkbox)
+- Provider/Model selectors per request
+	- Chat Completions or Responses API (tools/reasoning) per model
+- Fast streaming output with optional “reasoning deltas”
+- Token stats: total, per‑request (prompt+completion), current model
+- Fine‑grained message controls
+	- Include/Exclude from context
 	- Collapse/Expand with preview
-	- Edit message content inline
-	- “Move reference to end” toggle for file references
-- File workflows:
-	- Add file content (code blocks) to chat
-	- Add lightweight file reference (content expanded at send time)
-	- Add multiple references/images from selected path lists
-	- Clickable inline code that looks like a file path opens & adds it
-- Image support:
-	- Drag/paste images into the prompt input (as image parts)
-	- Add images from Explorer context menu
-- YAML import/export:
-	- Export the current chat as YAML
-	- Replace or append chat by selecting YAML in the editor
-- System Prompt selector (from configured prompts)
-- Click‑to‑paste any code block into the editor (configurable)
-- Watchdog to auto‑finalize stalled streams
-
----
-
-## Screens & UX Highlights
-
-- Fast streaming renderer with truncated view (shows tail of long outputs, keeps code fences balanced)
-- Reasoning deltas highlighted while streaming; saved into a collapsed <think> message when done
-- Each message renders in its own Shadow DOM for safer, isolated markup with sanitized HTML
+	- Inline edit
+	- “Move file reference to end” toggle
+- Files and images
+	- Add file content now, or lightweight references expanded on send
+	- Clickable inline code paths open & add files
+	- Paste/drag images or add from Explorer
+- YAML import/export for the whole chat
+- System Prompt selector
+- Click‑to‑paste code blocks into your editor (optional)
+- Watchdog to finalize stalled streams automatically
 
 ---
 
 ## Requirements
 
 - VS Code ≥ 1.73.0
-- An AI provider account and API key (e.g., OpenAI)
-- Node.js (for development/build)
+- An AI provider/API key (e.g., OpenAI-compatible)
+- Node.js for development/build
 - For Responses API features: OpenAI SDK v6+
 
 ---
@@ -94,36 +92,31 @@ Use ChatGPT, GPT‑4, and compatible APIs right inside VS Code to enhance and au
 ## Installation
 
 - From VSIX:
-	- Build/package (see Development Guide), then install:
 	```bash
 	code --install-extension devmate-ai-chat-*.vsix
 	```
-- From Marketplace:
-	- When published, search for “DevMate AI Chat” and install.
+- From Marketplace (when published): search “DevMate AI Chat”.
 
-Open Command Palette → “DevMate AI Chat: Ask DevMate AI Chat” or open the “DevMate AI Chat” view from the Activity Bar.
+Open Command Palette → “DevMate AI Chat: Ask DevMate AI Chat” or open the DevMate AI Chat view from the Activity Bar.
 
 ---
 
 ## Quick Start
 
-1. Open Settings and search for “DevMate AI Chat”.
-2. Configure at least one provider in devmate.providers (see below).
-3. Open the “DevMate AI Chat” view (Activity Bar).
-4. Select a provider and model; set a system prompt if desired.
-5. Type your question and press Enter to send.
+1. Open Settings and search “DevMate AI Chat”.
+2. Configure at least one provider in devmate.providers.
+3. Open the DevMate view (Activity Bar).
+4. Pick a provider/model and optional system prompt.
+5. Type your request and press Enter.
 
 ---
 
 ## Configuration
 
-All settings live under the devmate namespace.
+All settings live under devmate.
 
 ### Providers (devmate.providers)
 
-Define one or more providers with models. Each model can specify which API to use (chatCompletions or responses), custom options, and optional tools (Responses API).
-
-Example:
 ```json
 {
 	"devmate.providers": [
@@ -138,24 +131,15 @@ Example:
 			"name": "gpt-4o-mini (Chat Completions)",
 			"model_name": "gpt-4o-mini",
 			"api": "chatCompletions",
-			"options": {
-			"temperature": 0.7,
-			"max_tokens": 1024
-			},
+			"options": { "temperature": 0.7, "max_tokens": 1024 },
 			"reasoning_output_delta_path": "choices[0].delta.reasoning"
 		},
 		{
 			"name": "o4-mini (Responses)",
 			"model_name": "o4-mini",
 			"api": "responses",
-			"tools": [
-			{ "type": "web_search" }
-			],
-			"options": {
-			"temperature": 0.6,
-			"max_output_tokens": 2048,
-			"reasoning": { "summary": "auto" }
-			}
+			"tools": [{ "type": "web_search" }],
+			"options": { "temperature": 0.6, "max_output_tokens": 2048, "reasoning": { "summary": "auto" } }
 		}
 		]
 	}
@@ -164,13 +148,11 @@ Example:
 ```
 
 Notes:
-- For Chat Completions, set chatCompletionsUrl (or fallback to apiUrl).
-- For Responses, set responsesUrl (or fallback to apiUrl).
-- reasoning_output_delta_path is optional and provider‑specific; it tells DevMate where to find reasoning deltas in streaming chat completion chunks.
+- Chat Completions uses chatCompletionsUrl (or apiUrl).
+- Responses uses responsesUrl (or apiUrl).
+- reasoning_output_delta_path is optional and provider‑specific.
 
 ### System Prompts (devmate.prompts)
-
-Define a list of reusable system prompts for the selector.
 
 ```json
 {
@@ -193,30 +175,19 @@ Define a list of reusable system prompts for the selector.
 }
 ```
 
-- pasteOnClick: Click a code block in responses to paste into the editor.
-- selectedInsideCodeblock: Wrap editor selection in code fences when sending.
-- codeblockWithLanguageId: Include language id in code fences.
-- keepConversation: Reuse the same conversation for follow‑ups.
-- timeoutLength: Request timeout (seconds).
-
 ---
 
 ## Usage
 
-### The Chat View
+### Chat View
 
-- Top bar: Provider and Model selectors.
-- Message list:
-	- Each message shows role and content, with a checkbox to include/exclude from next context.
-	- Collapse/expand with preview. Collapsed state is preserved for YAML export/import.
-	- Inline editing for plain text messages.
-	- For “File reference” messages, a “Move reference to end” toggle appears. When enabled, the reference is moved just before your latest query on send (leaving a note where it was).
-- Stats bar: Total tokens used across the session, tokens used this request (prompt+completion), and model.
-- Bottom: System Prompt selector and the input box.
+- Top: Provider/Model selectors
+- Middle: Messages (include/exclude, collapse/expand, inline edit, “move ref to end” on reference messages)
+- Bottom: System Prompt selector + input
+- Stats bar shows tokens and current model
 
 ### Commands & Menus
 
-Commands:
 - devmate.ask — Ask DevMate AI Chat
 - devmate.explain — Explain selection
 - devmate.refactor — Refactor selection
@@ -224,33 +195,28 @@ Commands:
 - devmate.findProblems — Find problems
 - devmate.documentation — Write documentation
 - devmate.resetConversation — Reset conversation
-- devmate.pasteChat — Paste chat (export YAML into editor)
-- devmate.useSelectionAsChat — Use selection as conversation (import YAML, replaces)
-- devmate.appendSelectionAsChat — Append selection as conversation (import YAML, appends)
-- devmate.appendSelectionMarkdownAsChat — Append Markdown selection as chat (images + text)
+- devmate.pasteChat — Paste chat (export YAML)
+- devmate.useSelectionAsChat — Replace chat from selected YAML
+- devmate.appendSelectionAsChat — Append selected YAML
+- devmate.appendSelectionMarkdownAsChat — Append Markdown (text+images)
 - devmate.addImageToChat — Add image (Explorer)
 - devmate.addFileToChat — Add file content (Explorer)
 - devmate.addFileReferenceToChat — Add file reference (Explorer)
-- devmate.addSelectedPathsAsReferences — Add multiple references/images from selected tree text
-
-Menus:
-- Editor context: Most chat actions (explain/refactor/optimize/etc.)
-- Explorer context: Add image/file content/file reference
+- devmate.addSelectedPathsAsReferences — Add multiple references/images from a selected “tree” text
 
 ### Working with Files and Images
 
-- Add File Content: Inserts file contents immediately as a code block.
-- Add File Reference: Inserts a lightweight reference; actual content is injected right before sending the next prompt. Toggle “Move reference to end” to auto‑pin near the query.
-- Inline file paths in responses: Any inline code that looks like a path becomes clickable and can be added automatically.
-- Images: Paste images into the prompt input or add via Explorer context menu. Images are attached as proper image parts.
+- File Content: embeds the file as a code block now.
+- File Reference: adds a lightweight reference and expands on send. Optionally “move to end” so it sits next to your latest query.
+- Inline code paths in answers are clickable and can be added automatically.
+- Images: paste/drag into input or add via Explorer.
 
 ### YAML Import/Export
 
-- Export: “Paste chat” inserts the current chat as YAML into the active editor. Collapsed states and moveToEnd flags are included.
-- Import (replace): Select YAML → “Use selection as DevMate AI Chat conversation”.
-- Import (append): Select YAML → “Append selection to DevMate AI Chat conversation”.
+- Export: “Paste chat” inserts YAML into your editor, including collapsed/moveToEnd flags.
+- Import: Replace or append from selected YAML.
 
-YAML format is an array of messages with:
+YAML shape:
 ```yaml
 - role: user|assistant|system
 	content: string | parts
@@ -261,61 +227,52 @@ YAML format is an array of messages with:
 
 ### Streaming, Reasoning, and Stats
 
-- Output is streamed to the view.
-- Reasoning deltas are shown in a distinct color during streaming and are saved as a collapsed <think> assistant message after completion.
-- Token stats bar shows totals and per‑request usage.
-- Watchdog: If streaming stalls for ~90s, the partial output is finalized to avoid hanging.
+- Output streams live; optional reasoning deltas display in a distinct style and are saved as a collapsed <think> message.
+- Watchdog finalizes if the stream stalls (~90s).
 
 ### Keyboard Shortcuts
 
-- Enter: Send query (uses editor selection if configured).
-- Ctrl+Enter (Cmd+Enter on macOS): Send without querying the editor selection (Prompt No Query).
+- Enter: Send
+- Ctrl+Enter (Cmd+Enter): Send (No Query)
 
 ---
 
 ## Privacy & Security
 
-- DevMate sends your selected messages (including file contents, images, and references expanded at send time) to the configured provider endpoint(s). Review your content before sending.
-- Your API key is read from your VS Code settings (devmate.providers). Keep it secure.
-- DevMate does not transmit data anywhere else.
+- Only the content you select (messages/files/images) is sent to your configured provider endpoint(s).
+- API keys are read from your VS Code settings.
+- No other telemetry or data exfiltration.
 
 ---
 
 ## Troubleshooting
 
-- “API key or API URL not set…”: Ensure devmate.providers is configured. Pick a provider/model in the UI.
-- Responses API errors:
-	- Requires OpenAI SDK v6+ (Responses). Update dependencies and rebuild if needed.
-- Stalled stream:
-	- The watchdog finalizes partial output after ~90s. Try again or check provider status.
-- Click‑to‑paste disabled:
-	- Set devmate.pasteOnClick to true.
+- “API key or API URL not set…” → Configure devmate.providers and pick a model.
+- Responses API not available → Use OpenAI SDK v6+ and rebuild.
+- Stalled stream → Watchdog will finalize; retry or check provider status.
+- Click‑to‑paste not working → Enable devmate.pasteOnClick.
 
 ---
 
 ## Known Limitations
 
-- Token estimates use js‑tiktoken heuristics and may not match provider billing exactly.
-- Reasoning markers are visible in the stream but not saved in the final answer (saved separately in a collapsed <think> message).
-- Mixed lockfiles (npm/yarn) or SDK versions can cause mismatches (see Compatibility Notes).
+- Token stats are estimates and may not match billing exactly.
+- Reasoning deltas are streamed separately and saved as a collapsed <think> message.
+- Mixed npm/yarn lockfiles can cause dependency drift (see Compatibility Notes).
 
 ---
 
 ## Roadmap
 
-- Multi‑message editing improvements
-- Model capability discovery in UI
-- More provider templates
-- Better diff/patch operations back to workspace
+- Better multi‑message editing
+- Provider templates and capability discovery
+- Smarter diffs/patches back to files
 
 ---
 
 ## Contributing
 
-Issues and PRs are welcome. Please:
-- Describe expected vs. actual behavior
-- Include logs (DevTools / Output) if relevant
-- For PRs, run lint/tests and keep changes focused
+Issues and PRs are welcome. Please include repro steps and logs if relevant, and keep PRs focused.
 
 ---
 
@@ -326,14 +283,14 @@ Issues and PRs are welcome. Please:
 ```
 .
 ├─ media/
-│  ├─ main.js               # Webview script (UI, streaming renderer, events, sanitization)
-│  ├─ styles.css            # Webview styles
+│  ├─ main.js               # Webview UI + streaming renderer
+│  ├─ styles.css
 │  └─ scripts/              # Microlight, Tailwind, Showdown, DOMPurify
 ├─ src/
-│  ├─ extension.ts          # Activation, commands, configuration glue
-│  ├─ chatGptViewProvider.ts# Core chat logic, OpenAI calls, messages/state
-│  └─ types.ts              # Shared types, provider/model definitions
-├─ dist/                    # Webpack output (extension.js)
+│  ├─ extension.ts          # Activation, commands, settings
+│  ├─ chatGptViewProvider.ts# Chat logic, OpenAI calls, state
+│  └─ types.ts              # Shared types
+├─ dist/                    # Webpack output
 ├─ package.json
 ├─ package-lock.json / yarn.lock
 ├─ webpack.config.js
@@ -341,71 +298,47 @@ Issues and PRs are welcome. Please:
 └─ vsc-extension-quickstart.md
 ```
 
-Architecture:
-- Extension host (Node): src/extension.ts, src/chatGptViewProvider.ts
-- UI (Webview): media/main.js + HTML generated by provider
-- Messaging: webview.postMessage / onDidReceiveMessage
-
 ### Build, Run, Test
 
-- Install deps:
-	```bash
-	yarn
-	# or: npm install
-	```
-- Build (bundle with webpack):
-	```bash
-	yarn compile
-	# or: npm run compile
-	```
-- Watch:
-	```bash
-	yarn watch
-	```
-- Launch the extension:
-	- Press F5 in VS Code (“Run Extension”)
-- Lint:
-	```bash
-	yarn lint
-	```
-- Tests (Mocha):
-	```bash
-	yarn test
-	```
+```bash
+# install deps
+yarn        # or: npm install
 
-Note: The repo contains both package-lock.json and yarn.lock. Use one package manager consistently to avoid version drift. If using npm, you can refresh the lock with:
+# dev build
+yarn compile    # or: npm run compile
+yarn watch
+
+# run the extension
+# Press F5 in VS Code (“Run Extension”)
+
+# lint / test
+yarn lint
+yarn test
+```
+
+Note: The repo contains both package-lock.json and yarn.lock. Use one package manager consistently. If using npm:
 ```bash
 npm run update-package-lock
 ```
 
 ### Packaging & Publishing (vsce)
 
-This project is packaged with vsce (Visual Studio Code Extension Manager).
+This project uses vsce to create the .vsix.
 
-- Install vsce (globally):
-	```bash
-	npm install -g @vscode/vsce
-	```
-- Build the bundle first:
-	```bash
-	yarn compile
-	# or: npm run compile
-	```
-- Create the .vsix package:
-	```bash
-	vsce package
-	```
-	This produces devmate-ai-chat-<version>.vsix in the project root.
+```bash
+npm install -g @vscode/vsce
 
-- Install the VSIX locally:
-	```bash
-	code --install-extension devmate-ai-chat-*.vsix
-	```
+# production bundle (prepublish)
+yarn compile   # or: npm run compile
 
-Notes:
-- vsce runs the vscode:prepublish script automatically if defined (this project’s prepublish bundles with webpack in production mode).
-- To publish to the Marketplace, follow:
-	https://code.visualstudio.com/api/working-with-extensions/publishing-extension
+# create VSIX
+vsce package
+
+# install locally
+code --install-extension devmate-ai-chat-*.vsix
+```
+
+vsce runs the vscode:prepublish script automatically if defined.
 
 ### Webview Messaging Protocol
 
@@ -426,57 +359,50 @@ Webview → Extension:
 Extension → Webview:
 - initialize (providers)
 - initialize_prompts (system prompts)
-- addResponse (render content)
-- updateResponse
-- clearResponse
+- addResponse / updateResponse / clearResponse
 - setPrompt
-- updateStats (tokens/model)
+- updateStats
 - resetCollapseState
 - setCollapsedForIndex
 - setMoveRefToEndForIndex
-- Streaming:
-	- streamStart
-	- appendDelta
-	- appendReasoningDelta
-	- streamEnd
-
-See media/main.js and src/chatGptViewProvider.ts for exact payload shapes.
+- streamStart / appendDelta / appendReasoningDelta / streamEnd
 
 ### Providers & APIs
 
-- Model selection drives API usage:
-	- chatCompletions: openai.chat.completions.create({ stream: true, ... })
-	- responses: openai.responses.stream({ model, input, tools?, reasoning?, ... })
-- Tools (Responses API):
-	- Server-side tools like web_search are handled by the provider.
-	- Client-side custom tools are stubbed with a deterministic output so the model can proceed.
-- File references:
-	- Lightweight string markers (e.g., <!--FILE:relative/path.ext-->) are expanded to code blocks at send time using the latest on-disk file contents.
+- Chat Completions: openai.chat.completions.create({ stream: true, ... })
+- Responses: openai.responses.stream({ model, input, tools?, reasoning?, ... })
+- Tools: Server‑side tools (e.g., web_search) are handled by the provider. Client‑side custom tools are stubbed so the model can proceed.
+- File references: Lightweight markers (e.g., <!--FILE:relative/path.ext-->) expand on send to current file contents.
 
 ### Compatibility Notes
 
-- OpenAI SDK:
-	- This project targets OpenAI SDK v6+ for Responses API features. Ensure your installed version is ≥ 6 if you intend to use responses.stream().
-	- If you see dependency mismatches (e.g., older openai versions in your lockfile), align by installing:
+- OpenAI SDK v6+ recommended for Responses API support:
 	```bash
 	npm install openai@^6
 	# or
 	yarn add openai@^6
 	```
-- Mixed lockfiles:
-	- Prefer either npm or yarn. Remove the other lockfile to avoid version drift.
+- If lockfiles pull older versions, align and rebuild.
 
 ---
 
 ## Changelog
 
 - 1.1.0
-	- Provider/Model selectors with Chat Completions & Responses support
-	- Streaming with reasoning deltas and token stats bar
-	- File references with “Move to end” toggle and path click handling
-	- YAML import/export; Markdown selection import (with images)
-	- Image paste support; inline editing; collapse/expand messages
-	- Streaming watchdog for stalled responses
+	- Provider/Model selectors (Chat Completions & Responses)
+	- Streaming + reasoning deltas + token stats
+	- File references with “move to end” + clickable path handling
+	- YAML import/export; Markdown selection import
+	- Image paste; inline editing; collapse/expand; stream watchdog
+
+---
+
+## Credits
+
+This project started as a fork of the following repository. Huge thanks to the original author(s) for the groundwork:
+- Original project: [timkmecl chatgpt-vscode]( https://github.com/timkmecl/chatgpt-vscode )
+
+If you were involved in the original project and want specific attribution, please open an issue or PR.
 
 ---
 

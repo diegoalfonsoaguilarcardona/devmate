@@ -3,7 +3,7 @@
   "displayName": "DevMate AI Chat",
   "description": "Use ChatGPT and GPT4 right inside the IDE to enhance and automate your coding with AI-powered assistance (unofficial)",
   "version": "1.1.0",
-  "publisher": "diegoaac",
+  "publisher": "diegoalfonsoaguilarcardona",
   "icon": "resources/extensionIcon.png",
   "license": "MIT",
   "repository": {
