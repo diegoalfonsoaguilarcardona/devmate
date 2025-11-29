@@ -1,0 +1,7 @@
+out
+dist
+node_modules
+.vscode-test/
+*.vsix
+current_settings/providers_and_prompts_real.json
+

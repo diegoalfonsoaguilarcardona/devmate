@@ -1,0 +1,214 @@
+<!-- Applications/chat-builder.html -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Chat YAML Builder</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root { color-scheme: light dark; }
+    body { margin: 0; font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    .wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px; }
+    @media (max-width: 900px) { .wrap { grid-template-columns: 1fr; } }
+    h1 { margin: 0 0 12px; font-size: 16px; }
+    label { font-weight: 600; display: block; margin: 8px 0 6px; }
+    select, textarea, input, button {
+      font: inherit; padding: 8px; border-radius: 6px; border: 1px solid #8a8a8a40; width: 100%;
+      background: canvas; color: canvastext;
+    }
+    textarea { min-height: 180px; resize: vertical; }
+    .grid-2 { display: grid; grid-template-columns: 180px 1fr; gap: 12px; align-items: start; }
+    .buttons { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+    button { width: auto; cursor: pointer; }
+    .output textarea { min-height: 420px; white-space: pre; }
+    .hint { color: #888; font-size: 12px; margin-top: 4px; }
+    .row { display: grid; gap: 8px; }
+    .inline { display: flex; gap: 8px; align-items: center; }
+    .inline input[type="text"] { width: 180px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="controls">
+      <h1>Compose Message</h1>
+
+      <div class="row grid-2">
+        <div>
+          <label for="role">Role</label>
+          <select id="role">
+            <option value="system">system</option>
+            <option value="user" selected>user</option>
+            <option value="assistant">assistant</option>
+          </select>
+        </div>
+        <div>
+          <label for="content">Content</label>
+          <textarea id="content" placeholder="Type or paste message content here..."></textarea>
+          <div class="hint">Tip: Press Ctrl/Cmd + Enter to append.</div>
+        </div>
+      </div>
+
+      <div class="buttons">
+        <button id="append">Append</button>
+        <button id="copy">Copy YAML</button>
+        <button id="clear" title="Clear all">Clear</button>
+      </div>
+
+      <h1 style="margin-top:16px">Quick Paste</h1>
+      <div class="buttons">
+        <button id="paste-user">Paste user message</button>
+        <button id="paste-assistant">Paste assistant message</button>
+      </div>
+      <div class="inline" style="margin-top:8px">
+        <label for="code-lang" style="margin:0; font-weight:600;">Code block lang</label>
+        <input id="code-lang" type="text" placeholder="e.g., html, js, py" />
+        <button id="paste-code">Paste code block</button>
+      </div>
+      <div class="hint">“Paste code block” inserts a fenced block into the content of the last YAML message (just before selected: true). If there are no messages yet, a new one is created using the currently selected role.</div>
+    </section>
+
+    <section class="output">
+      <h1>YAML Output</h1>
+      <textarea id="output" readonly placeholder="- role: user
+  content: |-
+    Example multi-line
+    content goes here
+  selected: true"></textarea>
+      <div class="hint">Paste this YAML into a file and use your extension’s “Use selection as Chat”.</div>
+    </section>
+  </div>
+
+  <script>
+    const entries = [];
+
+    function toYamlString(str) {
+      // JSON-style double-quoted single-line string (valid YAML 1.2)
+      return JSON.stringify(str);
+    }
+
+    function toYaml(entries) {
+      const out = [];
+      for (const e of entries) {
+        out.push(`- role: ${e.role}`);
+        const content = e.content ?? '';
+        const hasNewlines = content.includes('\n');
+        if (hasNewlines) {
+          out.push(`  content: |-`);
+          const lines = content.replace(/\r\n/g, '\n').split('\n');
+          for (const line of lines) out.push(`    ${line}`);
+        } else {
+          out.push(`  content: ${toYamlString(content)}`);
+        }
+        out.push(`  selected: true`);
+      }
+      return out.join('\n');
+    }
+
+    function render() {
+      const txt = toYaml(entries);
+      const out = document.getElementById('output');
+      out.value = txt;
+      out.scrollTop = out.scrollHeight;
+    }
+
+    function appendEntry(role, content) {
+      entries.push({ role, content: content ?? '' });
+      render();
+    }
+
+    function normalizeText(t) {
+      return (t ?? '').replace(/\r\n/g, '\n');
+    }
+
+    async function readClipboardText() {
+      try {
+        const t = await navigator.clipboard.readText();
+        return t ?? '';
+      } catch (e) {
+        try {
+          // Legacy fallback (may not work in all browsers/contexts)
+          const ta = document.createElement('textarea');
+          document.body.appendChild(ta);
+          ta.focus();
+          document.execCommand('paste');
+          const v = ta.value;
+          document.body.removeChild(ta);
+          return v || '';
+        } catch {
+          alert('Unable to read clipboard. Please paste manually.');
+          return '';
+        }
+      }
+    }
+
+    // UI bindings
+    document.getElementById('append').addEventListener('click', () => {
+      const role = document.getElementById('role').value;
+      const content = document.getElementById('content').value || '';
+      appendEntry(role, content);
+      document.getElementById('content').value = '';
+      document.getElementById('content').focus();
+    });
+
+    document.getElementById('copy').addEventListener('click', async () => {
+      const out = document.getElementById('output');
+      out.select();
+      try {
+        await navigator.clipboard.writeText(out.value);
+      } catch {
+        document.execCommand('copy');
+      }
+    });
+
+    document.getElementById('clear').addEventListener('click', () => {
+      entries.length = 0;
+      render();
+    });
+
+    document.getElementById('content').addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        document.getElementById('append').click();
+      }
+    });
+
+    // Quick paste: user
+    document.getElementById('paste-user').addEventListener('click', async () => {
+      const txt = normalizeText(await readClipboardText());
+      if (!txt) return;
+      appendEntry('user', txt);
+    });
+
+    // Quick paste: assistant
+    document.getElementById('paste-assistant').addEventListener('click', async () => {
+      const txt = normalizeText(await readClipboardText());
+      if (!txt) return;
+      appendEntry('assistant', txt);
+    });
+
+    // Quick paste: code block -> insert into last message content, before "selected: true"
+    document.getElementById('paste-code').addEventListener('click', async () => {
+      const lang = (document.getElementById('code-lang').value || '').trim();
+      const txt = normalizeText(await readClipboardText());
+      if (!txt) return;
+
+      const fenced = '``​`' + lang + '\n' + txt + '\n``​`';
+
+      if (entries.length === 0) {
+        // No messages yet: create a new one using the currently selected role
+        const role = document.getElementById('role').value;
+        entries.push({ role, content: fenced });
+      } else {
+        // Append into the content of the last message
+        const last = entries[entries.length - 1];
+        const base = normalizeText(last.content ?? '');
+        last.content = base ? (base + '\n\n' + fenced) : fenced;
+      }
+      render();
+    });
+
+    // Initial render
+    render();
+  </script>
+</body>
+</html>
