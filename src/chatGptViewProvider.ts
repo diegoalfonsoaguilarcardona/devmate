@@ -127,14 +127,40 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
           }
         case 'codeSelected':
           {
-            // do nothing if the pasteOnClick option is disabled
+            // If the clicked code is a diff/patch, ask to apply it; otherwise keep the paste behavior
+            const code = String(data.value || '');
+            if (this.isLikelyDiffContent(code)) {
+              const choice = await vscode.window.showInformationMessage(
+                'Detected diff content from chat. Do you want to apply this patch to the workspace?',
+                { modal: true },
+                'Apply Patch',
+                'Insert as Text',
+                'Cancel'
+              );
+              if (choice === 'Apply Patch') {
+                const res = await this.applyPatchText(code);
+                if (res.success) {
+                  vscode.window.showInformationMessage(`Patch applied: ${res.details}`);
+                } else {
+                  vscode.window.showErrorMessage(`Patch failed: ${res.details}`);
+                }
+                break;
+              } else if (choice === 'Insert as Text') {
+                const snippet = new vscode.SnippetString();
+                snippet.appendText(code);
+                vscode.window.activeTextEditor?.insertSnippet(snippet);
+                break;
+              } else {
+                // Cancel
+                break;
+              }
+            }
+            // Non-diff: keep existing "paste on click" behavior
             if (!this._settings.pasteOnClick) {
               break;
             }
-            let code = data.value;
             const snippet = new vscode.SnippetString();
             snippet.appendText(code);
-            // insert the code as a snippet into the active text editor
             vscode.window.activeTextEditor?.insertSnippet(snippet);
             break;
           }
