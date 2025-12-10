@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import { promises as fsp } from 'fs';
 import * as yaml from 'js-yaml';
 import OpenAI from "openai";
 import { encodingForModel } from "js-tiktoken";
@@ -335,6 +336,32 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
           try {
             const fileContent = fs.readFileSync(absolutePath, 'utf-8');
             const fileExt = path.extname(filePath).slice(1) || '';
+            // New behavior: if this looks like a diff/patch, ask to apply it
+            if (this.isLikelyDiffPath(filePath) || this.isLikelyDiffContent(fileContent)) {
+              const choice = await vscode.window.showInformationMessage(
+                `Detected diff file: ${filePath}. Do you want to apply this patch to the workspace?`,
+                { modal: true },
+                'Apply Patch',
+                'Open Only',
+                'Cancel'
+              );
+              if (choice === 'Apply Patch') {
+                const res = await this.applyPatchText(fileContent);
+                if (res.success) {
+                  vscode.window.showInformationMessage(`Patch applied: ${res.details}`);
+                } else {
+                  vscode.window.showErrorMessage(`Patch failed: ${res.details}`);
+                }
+                // Also append the diff content to chat for auditing
+                this.addFileToChat(filePath, fileContent, fileExt);
+              } else if (choice === 'Open Only') {
+                this.addFileToChat(filePath, fileContent, fileExt);
+              } else {
+                // Cancel: do nothing
+              }
+              break;
+            }
+            // Non-diff files keep existing behavior
             this.addFileToChat(filePath, fileContent, fileExt);
           } catch (e) {
             vscode.window.showErrorMessage(`Could not read file: ${filePath} (${e instanceof Error ? e.message : String(e)})`);
@@ -1726,6 +1753,400 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
     const chat_response = this._updateChatMessages(this._getMessagesNumberOfTokens(), 0);
     this._view?.webview.postMessage({ type: 'addResponse', value: chat_response });
   }
+
+  // ---------------------------
+  // Diff/Patch application logic
+  // ---------------------------
+  private isLikelyDiffPath(relPath: string): boolean {
+    return /\.(patch|diff)$/i.test(relPath);
+  }
+
+  private isLikelyDiffContent(s: string): boolean {
+    if (!s) return false;
+    // Unified diff markers or OpenAI Patch or EditBlock
+    return (
+      /^\s*---\s+(?:a\/|\/dev\/null|[^\s])/m.test(s) ||
+      /^\s*\*\*\*\s+Begin Patch/m.test(s) ||
+      /^(###\s+FILE: )/m.test(s) ||
+      /^\s*<<<<<<<\s*SEARCH[\s\S]*?>>>>>>>\s*REPLACE/m.test(s)
+    );
+  }
+
+  private async applyPatchText(rawText: string): Promise<{ success: boolean; details: string }> {
+    try {
+      // Extract one or more patch blocks we know how to process
+      const unifiedBlocks = this.extractUnifiedDiffBlocks(rawText);
+      const openAiBlocks = this.extractOpenAIPatchBlocks(rawText);
+      const editBlocks = this.extractEditBlocks(rawText);
+
+      let appliedFiles = 0;
+      let appliedVia = { udiff: 0, openai: 0, edit: 0, fuzzy: 0, whitespace: 0 };
+
+      // Apply unified diffs first
+      for (const block of unifiedBlocks) {
+        const result = await this.applyUnifiedDiffBlock(block, appliedVia);
+        if (!result.success) {
+          return { success: false, details: `[udiff] ${result.details}` };
+        }
+        appliedFiles += result.count;
+      }
+
+      // Convert OpenAI Patch to udiff and apply
+      for (const upd of openAiBlocks) {
+        const asUnified = this.convertOpenAIPatchUpdateToUnified(upd);
+        const result = await this.applyUnifiedDiffBlock(asUnified, appliedVia);
+        if (!result.success) {
+          return { success: false, details: `[openai] ${result.details}` };
+        }
+        appliedFiles += result.count;
+        appliedVia.openai += result.count;
+      }
+
+      // Apply EditBlock SEARCH/REPLACE (possibly across files)
+      for (const eb of editBlocks) {
+        const result = await this.applyEditBlock(eb);
+        if (!result.success) {
+          return { success: false, details: `[editblock] ${result.details}` };
+        }
+        appliedFiles += result.count;
+        appliedVia.edit += result.count;
+      }
+
+      if (appliedFiles === 0) {
+        return { success: false, details: 'No recognizable patches found.' };
+      }
+
+      const detail = `changed ${appliedFiles} file(s) ` +
+        `(udiff:${appliedVia.udiff}, openai:${appliedVia.openai}, edit:${appliedVia.edit},` +
+        ` whitespace:${appliedVia.whitespace}, fuzzy:${appliedVia.fuzzy})`;
+      return { success: true, details: detail };
+    } catch (e: any) {
+      return { success: false, details: `Unexpected error: ${e?.message || String(e)}` };
+    }
+  }
+
+  // Extract fenced diff blocks after headings ### FILE: <path>, or whole text if it's a single diff.
+  private extractUnifiedDiffBlocks(text: string): string[] {
+    const blocks: string[] = [];
+    // 1) ### FILE: <path> + fenced ``​`diff
+    const re = /(^|\n)###\s+FILE:\s+([^\r\n]+)\s*\n+``​`(?:diff)?\s*([\s\S]*?)``​`/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text)) !== null) {
+      const diffBody = (m[3] || '').trim();
+      if (diffBody && /(^|\n)---\s+/.test(diffBody) && /(^|\n)\+\+\+\s+/.test(diffBody)) {
+        blocks.push(diffBody);
+      }
+    }
+    // 2) If the whole text itself is a single diff
+    if (blocks.length === 0 && /(^|\n)---\s+/.test(text) && /(^|\n)\+\+\+\s+/.test(text)) {
+      blocks.push(text);
+    }
+    return blocks;
+  }
+
+  // Parse OpenAI Patch style: *** Begin Patch ... *** Update File: <path> ... @@ ... *** End Patch
+  private extractOpenAIPatchBlocks(text: string): Array<{ path: string; body: string }> {
+    const out: Array<{ path: string; body: string }> = [];
+    const all = text.match(/\*\*\*\s+Begin Patch[\s\S]*?\*\*\*\s+End Patch/g);
+    if (!all) return out;
+    for (const blk of all) {
+      const reUpd = /\*\*\*\s+Update File:\s+([^\r\n]+)\s*([\s\S]*?)(?=(\*\*\*\s+Update File:|\*\*\*\s+End Patch))/g;
+      let m: RegExpExecArray | null;
+      while ((m = reUpd.exec(blk)) !== null) {
+        const p = (m[1] || '').trim();
+        const body = (m[2] || '').trim();
+        if (p && /(^|\n)@@\s/.test(body)) out.push({ path: p, body });
+      }
+    }
+    return out;
+  }
+
+  // Convert an OpenAI Update File chunk into a unified diff string
+  private convertOpenAIPatchUpdateToUnified(u: { path: string; body: string }): string {
+    const p = u.path.replace(/^(\.\/)/, '');
+    const header = `--- a/${p}\n+++ b/${p}\n`;
+    // Body already contains @@ hunks with ' ', '-', '+'
+    return header + u.body.replace(/\r\n/g, '\n') + '\n';
+  }
+
+  // Extract Aider/Cline style EditBlock SEARCH/REPLACE
+  private extractEditBlocks(text: string): Array<{ file?: string; search: string; replace: string }> {
+    const out: Array<{ file?: string; search: string; replace: string }> = [];
+    // Try to pick up a preceding path line, else leave file undefined
+    const re = /(?:^|\n)([^\n`*<>][^\n]*\.[A-Za-z0-9]+)?\s*\n+<<<<<<<\s*SEARCH\s*\n([\s\S]*?)\n=======\s*\n([\s\S]*?)\n>>>>>>>\s*REPLACE/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text)) !== null) {
+      const fileLine = (m[1] || '').trim();
+      const search = (m[2] || '').replace(/\r\n/g, '\n');
+      const replace = (m[3] || '').replace(/\r\n/g, '\n');
+      const file = fileLine && /[\/\\]/.test(fileLine) ? fileLine : undefined;
+      if (search.length > 0) out.push({ file, search, replace });
+    }
+    return out;
+  }
+
+  private normalizeWs(s: string): string {
+    return s.replace(/[ \t]+/g, ' ').replace(/\r\n/g, '\n');
+  }
+
+  private stripPrefix(p: string): string {
+    // a/path, b/path, /dev/null -> normalize
+    if (p === '/dev/null') return p;
+    return p.replace(/^[ab]\//, '');
+  }
+
+  private parseUnifiedDiff(diffText: string): Array<{
+    oldPath: string;
+    newPath: string;
+    hunks: Array<{ header: string; lines: string[] }>;
+  }> {
+    const lines = diffText.replace(/\r\n/g, '\n').split('\n');
+    const files: Array<{ oldPath: string; newPath: string; hunks: Array<{ header: string; lines: string[] }> }> = [];
+    let i = 0;
+    while (i < lines.length) {
+      // find next file header
+      while (i < lines.length && !lines[i].startsWith('--- ')) i++;
+      if (i >= lines.length) break;
+      const oldLine = lines[i++] || '';
+      const newLine = lines[i++] || '';
+      const oldPath = this.stripPrefix((oldLine.split(/\s+/)[1] || '').trim());
+      const newPath = this.stripPrefix((newLine.split(/\s+/)[1] || '').trim());
+      const hunks: Array<{ header: string; lines: string[] }> = [];
+      while (i < lines.length && lines[i].startsWith('@@')) {
+        const header = lines[i++] || '';
+        const hunkLines: string[] = [];
+        while (i < lines.length && !lines[i].startsWith('@@') && !lines[i].startsWith('--- ')) {
+          hunkLines.push(lines[i++]);
+        }
+        hunks.push({ header, lines: hunkLines });
+      }
+      files.push({ oldPath, newPath, hunks });
+    }
+    return files;
+  }
+
+  private async readWorkspaceFileOptional(relPath: string): Promise<string | null> {
+    const folders = vscode.workspace.workspaceFolders || [];
+    for (const f of folders) {
+      const abs = path.join(f.uri.fsPath, relPath);
+      try {
+        const buf = await fsp.readFile(abs, 'utf8');
+        return buf;
+      } catch { /* try next */ }
+    }
+    return null;
+  }
+
+  private async writeWorkspaceFile(relPath: string, content: string): Promise<void> {
+    const folders = vscode.workspace.workspaceFolders || [];
+    if (!folders || folders.length === 0) throw new Error('No workspace.');
+    const root = folders[0].uri.fsPath;
+    const abs = path.join(root, relPath);
+    await fsp.mkdir(path.dirname(abs), { recursive: true });
+    await fsp.writeFile(abs, content, 'utf8');
+  }
+
+  private async deleteWorkspaceFile(relPath: string): Promise<void> {
+    const folders = vscode.workspace.workspaceFolders || [];
+    if (!folders || folders.length === 0) throw new Error('No workspace.');
+    const root = folders[0].uri.fsPath;
+    const abs = path.join(root, relPath);
+    try {
+      await fsp.unlink(abs);
+    } catch (e: any) {
+      if (e && e.code === 'ENOENT') return;
+      throw e;
+    }
+  }
+
+  private applyHunkToText(current: string, hunkLines: string[]): { ok: boolean; text?: string; via?: 'exact' | 'whitespace' | 'fuzzy' } {
+    const curLines = current.replace(/\r\n/g, '\n').split('\n');
+    const oldSeq = hunkLines
+      .filter(l => l.startsWith(' ') || l.startsWith('-'))
+      .map(l => l.slice(1));
+    const newSeq = hunkLines
+      .filter(l => l.startsWith(' ') || l.startsWith('+'))
+      .map(l => l.slice(1));
+
+    // Strategy A: exact contiguous match
+    const idxExact = this.findSubsequence(curLines, oldSeq, false);
+    if (idxExact !== -1) {
+      const next = [...curLines.slice(0, idxExact), ...newSeq, ...curLines.slice(idxExact + oldSeq.length)];
+      return { ok: true, text: next.join('\n'), via: 'exact' };
+    }
+
+    // Strategy B: whitespace-insensitive contiguous match
+    const idxWs = this.findSubsequence(curLines, oldSeq, true);
+    if (idxWs !== -1) {
+      const next = [...curLines.slice(0, idxWs), ...newSeq, ...curLines.slice(idxWs + oldSeq.length)];
+      return { ok: true, text: next.join('\n'), via: 'whitespace' };
+    }
+
+    // Strategy C: fuzzy window using first/last context lines
+    const firstCtx = hunkLines.find(l => l.startsWith(' '));
+    const lastCtx = [...hunkLines].reverse().find(l => l.startsWith(' '));
+    if (firstCtx) {
+      const anchor = firstCtx.slice(1);
+      const candIdxs = this.findAllLineMatches(curLines, anchor);
+      for (const base of candIdxs) {
+        // try to apply within a window
+        const start = Math.max(0, base - 50);
+        const end = Math.min(curLines.length, base + 200);
+        const windowLines = curLines.slice(start, end);
+        const idxInWin = this.findSubsequence(windowLines, oldSeq, true);
+        if (idxInWin !== -1) {
+          const absIdx = start + idxInWin;
+          const next = [...curLines.slice(0, absIdx), ...newSeq, ...curLines.slice(absIdx + oldSeq.length)];
+          return { ok: true, text: next.join('\n'), via: 'fuzzy' };
+        }
+      }
+    }
+    return { ok: false };
+  }
+
+  private findAllLineMatches(lines: string[], needle: string): number[] {
+    const out: number[] = [];
+    const normNeedle = this.normalizeWs(needle);
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i] === needle || this.normalizeWs(lines[i]) === normNeedle) out.push(i);
+    }
+    return out;
+  }
+
+  private findSubsequence(hay: string[], needle: string[], ignoreWs: boolean): number {
+    if (needle.length === 0) return 0;
+    const n0 = ignoreWs ? this.normalizeWs(needle[0]) : needle[0];
+    for (let i = 0; i + needle.length <= hay.length; i++) {
+      const h0 = ignoreWs ? this.normalizeWs(hay[i]) : hay[i];
+      if (h0 !== n0) continue;
+      let ok = true;
+      for (let j = 1; j < needle.length; j++) {
+        const hj = ignoreWs ? this.normalizeWs(hay[i + j]) : hay[i + j];
+        const nj = ignoreWs ? this.normalizeWs(needle[j]) : needle[j];
+        if (hj !== nj) { ok = false; break; }
+      }
+      if (ok) return i;
+    }
+    return -1;
+  }
+
+  private async applyUnifiedDiffBlock(diffBlock: string, counters?: { udiff: number; openai: number; edit: number; whitespace: number; fuzzy: number }): Promise<{ success: boolean; details: string; count: number }> {
+    const files = this.parseUnifiedDiff(diffBlock);
+    if (!files.length) return { success: false, details: 'Empty or invalid unified diff.', count: 0 };
+    let changed = 0;
+    for (const file of files) {
+      const oldP = file.oldPath;
+      const newP = file.newPath;
+      // Handle add/delete
+      if (oldP === '/dev/null' && newP && newP !== '/dev/null') {
+        // Added file: take only '+'/' ' lines from hunks
+        let contentLines: string[] = [];
+        for (const h of file.hunks) {
+          for (const l of h.lines) {
+            if (l.startsWith('+')) contentLines.push(l.slice(1));
+            else if (l.startsWith(' ')) contentLines.push(l.slice(1));
+          }
+        }
+        await this.writeWorkspaceFile(newP, contentLines.join('\n'));
+        changed++;
+        if (counters) counters.udiff++;
+        continue;
+      }
+      if (newP === '/dev/null' && oldP && oldP !== '/dev/null') {
+        await this.deleteWorkspaceFile(oldP);
+        changed++;
+        if (counters) counters.udiff++;
+        continue;
+      }
+      const targetPath = newP || oldP;
+      if (!targetPath) return { success: false, details: 'Missing target path in diff.', count: changed };
+      const before = (await this.readWorkspaceFileOptional(targetPath)) ?? '';
+      let cur = before;
+      let localAppliedVia: Array<'exact' | 'whitespace' | 'fuzzy'> = [];
+      for (const h of file.hunks) {
+        const res = this.applyHunkToText(cur, h.lines);
+        if (!res.ok || !res.text) {
+          return { success: false, details: `Failed to apply hunk in ${targetPath}`, count: changed };
+        }
+        cur = res.text;
+        if (res.via) localAppliedVia.push(res.via);
+      }
+      await this.writeWorkspaceFile(targetPath, cur);
+      // count strategies
+      if (counters) {
+        counters.udiff++;
+        if (localAppliedVia.includes('whitespace')) counters.whitespace++;
+        if (localAppliedVia.includes('fuzzy')) counters.fuzzy++;
+      }
+      changed++;
+    }
+    return { success: true, details: `Applied ${changed} file(s)`, count: changed };
+  }
+
+  private async applyEditBlock(eb: { file?: string; search: string; replace: string }): Promise<{ success: boolean; details: string; count: number }> {
+    const relCandidates: string[] = [];
+    if (eb.file) {
+      relCandidates.push(eb.file.replace(/^[.][\\/]/, '').replace(/\\/g, '/'));
+    } else {
+      // Find a file in the workspace that contains the search block
+      const files = await vscode.workspace.findFiles('**/*', '**/{node_modules,.git,out,dist,build}/**', 10000);
+      for (const u of files) relCandidates.push(vscode.workspace.asRelativePath(u, false).replace(/\\/g, '/'));
+    }
+    const search = eb.search.replace(/\r\n/g, '\n');
+    const replace = eb.replace.replace(/\r\n/g, '\n');
+    let changed = 0;
+    for (const rel of relCandidates) {
+      const before = await this.readWorkspaceFileOptional(rel);
+      if (before == null) continue;
+      // Try exact match first
+      if (before.includes(search)) {
+        const after = before.split(search).join(replace);
+        if (after !== before) {
+          await this.writeWorkspaceFile(rel, after);
+          changed++;
+          break; // one file is enough for this block
+        }
+      } else {
+        // Whitespace-insensitive attempt
+        const normBefore = this.normalizeWs(before);
+        const normSearch = this.normalizeWs(search);
+        const pos = normBefore.indexOf(normSearch);
+        if (pos !== -1) {
+          // Fallback: naive replacement by mapping positions in normalized space is tricky.
+          // As a safer fallback, try to locate by first and last line of the search block.
+          const sLines = search.split('\n');
+          const first = sLines[0], last = sLines[sLines.length - 1];
+          const beforeLines = before.split('\n');
+          const firstIdxs = this.findAllLineMatches(beforeLines, first);
+          let applied = false;
+          for (const i of firstIdxs) {
+            // check tail
+            if (i + sLines.length <= beforeLines.length) {
+              let ok = true;
+              for (let k = 0; k < sLines.length; k++) {
+                if (this.normalizeWs(beforeLines[i + k]) !== this.normalizeWs(sLines[k])) { ok = false; break; }
+              }
+              if (ok) {
+                const afterLines = [
+                  ...beforeLines.slice(0, i),
+                  ...replace.split('\n'),
+                  ...beforeLines.slice(i + sLines.length)
+                ];
+                await this.writeWorkspaceFile(rel, afterLines.join('\n'));
+                changed++;
+                applied = true;
+                break;
+              }
+            }
+          }
+          if (applied) break;
+        }
+      }
+    }
+    if (changed === 0) return { success: false, details: 'SEARCH block not found in workspace (even with whitespace tolerance).', count: 0 };
+    return { success: true, details: `EditBlock applied to ${changed} file(s).`, count: changed };
+  }
+
 
   public addFileToChat(relativePath: string, fileContent: string, fileExtension: string) {
     let codeBlock = `**${relativePath}**\n\`\`\`${fileExtension}\n${fileContent}\n\`\`\``;
