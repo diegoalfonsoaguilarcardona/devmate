@@ -270,7 +270,7 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
             const modelIndex = data.modelIndex;
             console.log("Provider Changed, providerIndex:", providerIndex, ", model:", modelIndex);
 
-            const config = vscode.workspace.getConfiguration('chatgpt');
+            const config = vscode.workspace.getConfiguration('devmate');
             let providers: Provider[] = config.get('providers') || [];
 
             if (providers && providers.length > providerIndex) {
@@ -320,7 +320,7 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
             const systemPromptIndex = data.systemPromptIndex;
             console.log("systemPrompt Changed, providerIndex:", systemPromptIndex);
 
-            const config = vscode.workspace.getConfiguration('chatgpt');
+            const config = vscode.workspace.getConfiguration('devmate');
             let prompts: Prompt[] = config.get('prompts') || [];
 
             if (prompts && prompts.length > systemPromptIndex) {
@@ -399,7 +399,7 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
   }
 
   public getStartSystemPrompt() {
-    const config = vscode.workspace.getConfiguration('chatgpt');
+    const config = vscode.workspace.getConfiguration('devmate');
     let prompts: Prompt[] = config.get('prompts') || [];
     let start_system_prompt = "You are a helpful assistant.";
     if (prompts && prompts.length > 0) {
@@ -1044,7 +1044,7 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
 
     // Focus the ChatGPT view
     if (!this._view) {
-      await vscode.commands.executeCommand('chatgpt.chatView.focus');
+      await vscode.commands.executeCommand('devmate.chatView.focus');
     } else {
       this._view?.show?.(true);
     }
