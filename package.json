@@ -2,7 +2,7 @@
   "name": "devmate-ai-chat",
   "displayName": "DevMate AI Chat",
   "description": "Use multiple llm providers and specific models right inside the IDE to enhance and automate your coding with AI-powered assistance",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "publisher": "diegoalfonsoaguilarcardona",
   "icon": "resources/extensionIcon.png",
   "license": "MIT",
@@ -86,7 +86,7 @@
       {
         "command": "devmate.appendSelectionMarkdownAsChat",
         "title": "Append Markdown selection to DevMate AI Chat conversation"
-      },      
+      },
       {
         "command": "devmate.tryAgain",
         "title": "Retry DevMate AI Chat request"
@@ -101,12 +101,12 @@
       },
       {
         "command": "devmate.addFileReferenceToChat",
-        "title": "Add File Reference to DevMate AI Chat"        
+        "title": "Add File Reference to DevMate AI Chat"
       },
       {
         "command": "devmate.addSelectedPathsAsReferences",
         "title": "Add Selected File References to Chat"
-       }
+      }
     ],
     "menus": {
       "editor/context": [
@@ -157,7 +157,8 @@
         },
         {
           "command": "devmate.addSelectedPathsAsReferences",
-          "when": "editorHasSelection", "group": "devmate-menu-group@9"
+          "when": "editorHasSelection",
+          "group": "devmate-menu-group@9"
         }
       ],
       "commandPalette": [
@@ -196,7 +197,7 @@
         },
         {
           "command": "devmate.appendSelectionAsChat",
-          "when": "editorHasSelection"          
+          "when": "editorHasSelection"
         },
         {
           "command": "devmate.appendSelectionMarkdownAsChat",
@@ -272,7 +273,7 @@
               "responsesUrl": {
                 "type": "string",
                 "description": "Responses API base URL for this provider (optional; used when a model selects the Responses API)."
-              },              
+              },
               "models": {
                 "type": "array",
                 "description": "List of models offered by this provider.",
@@ -289,7 +290,10 @@
                     },
                     "api": {
                       "type": "string",
-                      "enum": ["chatCompletions", "responses"],
+                      "enum": [
+                        "chatCompletions",
+                        "responses"
+                      ],
                       "description": "Which API to use for this model."
                     },
                     "tools": {
@@ -299,7 +303,7 @@
                         "type": "object",
                         "description": "Tool definition object; schema is provider-specific."
                       }
-                    },                    
+                    },
                     "options": {
                       "type": "object",
                       "description": "Options for the model.",
@@ -313,16 +317,23 @@
                       "description": "Dot/bracket path to the streaming reasoning delta within chat completions chunks (e.g., choices[0].delta.reasoning)."
                     }
                   },
-                  "required": ["name"]
+                  "required": [
+                    "name"
+                  ]
                 }
               }
             },
-            "required": ["name", "apiKey", "apiUrl", "models"]
+            "required": [
+              "name",
+              "apiKey",
+              "apiUrl",
+              "models"
+            ]
           },
           "order": 1
         },
-        "devmate.prompts" : {
-          "type":"array",
+        "devmate.prompts": {
+          "type": "array",
           "description": "List of possible prompts to use",
           "items": {
             "type": "object",
@@ -336,7 +347,10 @@
                 "description": "The prompt it self"
               }
             },
-            "required": ["name", "prompt"]
+            "required": [
+              "name",
+              "prompt"
+            ]
           },
           "order": 2
         },
@@ -408,6 +422,7 @@
     "compile": "webpack",
     "watch": "webpack --watch",
     "package": "webpack --mode production --devtool hidden-source-map",
+    "package:vsix": "yarn run package && node scripts/bump-version.js && npx vsce package",
     "compile-tests": "tsc -p . --outDir out",
     "watch-tests": "tsc -p . -w --outDir out",
     "pretest": "yarn run compile-tests && yarn run compile && yarn run lint",
