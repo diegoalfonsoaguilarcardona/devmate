@@ -264,43 +264,54 @@ export function activate(context: vscode.ExtensionContext) {
 	);
 
     context.subscriptions.push(
-      vscode.commands.registerCommand('devmate.addFileReferenceToChat', async (uri: vscode.Uri) => {
-        if (!uri || !uri.fsPath) {
+      vscode.commands.registerCommand('devmate.addFileReferenceToChat', async (uri: vscode.Uri, selectedUris?: vscode.Uri[]) => {
+        // Determine targets from Explorer multi-select or single click
+        const targets = (Array.isArray(selectedUris) && selectedUris.length) ? selectedUris : (uri ? [uri] : []);
+        if (!targets.length) {
           vscode.window.showErrorMessage('No file selected!');
           return;
         }
-        try {
-          const workspaceFolder = vscode.workspace.getWorkspaceFolder(uri);
-          let relativePath: string;
-          if (workspaceFolder) {
-            relativePath = path.relative(workspaceFolder.uri.fsPath, uri.fsPath);
-          } else {
-            relativePath = path.basename(uri.fsPath);
+        let addedText = 0, addedImg = 0, skippedMissing = 0, skippedBinary = 0, skippedDir = 0, skippedNoWs = 0;
+        for (const u of targets) {
+          try {
+            if (!u || !u.fsPath) { skippedMissing++; continue; }
+            const st = await fsp.stat(u.fsPath);
+            if (!st.isFile()) { skippedDir++; continue; }
+            const ws = vscode.workspace.getWorkspaceFolder(u);
+            if (!ws) { skippedNoWs++; continue; }
+            const relativePath = path.relative(ws.uri.fsPath, u.fsPath).replace(/\\/g, '/');
+            const fileExtension = path.extname(relativePath).substring(1);
+            const abs = u.fsPath;
+            const mime = await detectImageMime(abs);
+            if (mime) {
+              const dataUrl = await readImageAsDataUrl(abs, mime);
+              provider.addImageToChat(dataUrl, path.basename(abs));
+              addedImg++;
+              continue;
+            }
+            if (await isTextFile(abs)) {
+              provider.addFileReferenceToChat(relativePath, fileExtension);
+              addedText++;
+            } else {
+              skippedBinary++;
+            }
+          } catch (err) {
+            skippedMissing++;
           }
-          const fileExtension = path.extname(relativePath).substring(1);
-          // Use content-based detection: image => add as base64 image; text => add as reference; else warn.
-          const abs = uri.fsPath;
-          const ws = workspaceFolder;
-          if (!ws) {
-            vscode.window.showErrorMessage('No workspace folder for this file.');
-            return;
-          }
-          const mime = await detectImageMime(abs);
-          if (mime) {
-            const dataUrl = await readImageAsDataUrl(abs, mime);
-            provider.addImageToChat(dataUrl, path.basename(abs));
-            return;
-          }
-          if (await isTextFile(abs)) {
-            provider.addFileReferenceToChat(relativePath.replace(/\\/g, '/'), fileExtension);
-          } else {
-            vscode.window.showWarningMessage('Selected file appears to be binary; not added.');
-          }
-        } catch (err) {
-          vscode.window.showErrorMessage(`Failed to add file reference: ${err}`);
         }
+        const summaryParts: string[] = [];
+        if (addedText) summaryParts.push(`${addedText} text`);
+        if (addedImg) summaryParts.push(`${addedImg} image`);
+        if (!addedText && !addedImg) summaryParts.push('0');
+        const skippedParts: string[] = [];
+        if (skippedMissing) skippedParts.push(`${skippedMissing} missing`);
+        if (skippedDir) skippedParts.push(`${skippedDir} directories`);
+        if (skippedBinary) skippedParts.push(`${skippedBinary} binary`);
+        if (skippedNoWs) skippedParts.push(`${skippedNoWs} no-workspace`);
+        const msg = `Added ${summaryParts.join(' + ')} file(s)` + (skippedParts.length ? `; skipped ${skippedParts.join(', ')}` : '');
+        vscode.window.setStatusBarMessage(`[DevMate AI Chat] ${msg}`, 4000);
       })
-    );	
+    ); 
 
 	const commandHandler = (command: string) => {
 		const config = vscode.workspace.getConfiguration('devmate');
