@@ -407,6 +407,88 @@ Extension → Webview:
 
 ---
 
+## Publish to VS Code Marketplace (online)
+
+Follow these steps to publish the extension to the Visual Studio Code Marketplace (the “online” gallery used by VS Code).
+
+1) Prerequisites
+- Node.js and npm/yarn installed
+- vsce CLI:
+  ```bash
+  npm install -g @vscode/vsce
+  ```
+
+2) Create (or join) a Publisher
+- Go to https://marketplace.visualstudio.com/manage and sign in.
+- Create a publisher (e.g., “diegoalfonsoaguilarcardona”) or use an existing one.
+- Your extension ID is `${publisher}.${name}` and must match package.json.
+
+3) Create a Personal Access Token (PAT)
+- Create an Azure DevOps PAT with at least “Marketplace (publish)” scope:
+  https://dev.azure.com/ (User Settings → Personal Access Tokens → New Token)
+- Keep the token handy; vsce will ask for it on first login.
+
+4) Verify package.json fields
+Ensure these fields exist and are correct (example):
+```json
+{
+  "name": "devmate-ai-chat",
+  "displayName": "DevMate AI Chat",
+  "description": "Pseudo-agentic coding with AI in VS Code.",
+  "publisher": "diegoalfonsoaguilarcardona",
+  "version": "1.1.0",
+  "engines": { "vscode": "^1.73.0" },
+  "icon": "resources/extensionIconColor.png",
+  "categories": ["Other"],
+  "repository": { "type": "git", "url": "https://github.com/your/repo.git" },
+  "bugs": { "url": "https://github.com/your/repo/issues" },
+  "homepage": "https://github.com/your/repo#readme"
+}
+```
+Notes:
+- “publisher” must match the Marketplace publisher you created.
+- The extension ID becomes `publisher.name` (e.g., diegoalfonsoaguilarcardona.devmate-ai-chat).
+- Make sure “engines.vscode” is set to the minimum VS Code version you support.
+
+5) Keep the VSIX small (added .vscodeignore)
+- This repo includes a .vscodeignore that excludes src/, node_modules/, and other dev-only files so your VSIX ships only the production bundle (dist/) and media/.
+
+6) Build and package
+```bash
+# build production bundle (webpack)
+yarn compile    # or: npm run compile
+
+# optionally generate a VSIX for local install
+vsce package
+```
+This produces devmate-ai-chat-<version>.vsix.
+
+7) Login and publish
+```bash
+# first time only: login with your publisher; paste PAT when prompted
+vsce login diegoalfonsoaguilarcardona
+
+# publish using the current version in package.json (bump version beforehand)
+vsce publish
+
+# or bump automatically and publish in one step
+vsce publish patch   # or: minor / major
+```
+
+8) Verify listing
+- After publishing, your extension appears at https://marketplace.visualstudio.com/manage and in the VS Code Extensions view shortly after.
+
+### Optional: Open VSX (for VSCodium / open-source builds)
+```bash
+npm install -g ovsx
+
+# create token at https://open-vsx.org (Account → Tokens), then:
+ovsx login --publisher <publisher>
+ovsx publish devmate-ai-chat-<version>.vsix
+```
+
+---
+
 ## Changelog
 
 - 1.1.0

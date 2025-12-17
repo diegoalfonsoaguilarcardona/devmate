@@ -1,13 +1,25 @@
-.vscode/**
-.vscode-test/**
-out/**
-node_modules/**
+# Exclude development sources and configs (ship dist/ + media/)
 src/**
-.gitignore
-.yarnrc
-webpack.config.js
-vsc-extension-quickstart.md
-**/tsconfig.json
-**/.eslintrc.json
+scripts/**
+test/**
+.vscode/**
+.github/**
+.git/**
+.vscode-test/**
+
+tsconfig*.json
+webpack*.config.js
+jest.config.*
+*.tsbuildinfo
+
+# Lockfiles (optional)
+yarn.lock
+package-lock.json
+pnpm-lock.yaml
+
+# Exclude node_modules (bundle contains dependencies)
+node_modules/**
+
+# Source maps and misc
 **/*.map
-**/*.ts
+.vscodeignore
