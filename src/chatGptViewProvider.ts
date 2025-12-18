@@ -2082,6 +2082,32 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
     const minusOnly = hunkLines.filter(l => l.startsWith('-')).map(l => l.slice(1));
     const plusOnly = hunkLines.filter(l => l.startsWith('+')).map(l => l.slice(1));
 
+    // Idempotency/duplication guards: if the "new" content already exists,
+    // or the "old" content is already gone, skip to avoid duplicate insertions.
+    const hasNewExact = this.findSubsequence(curLines, newSeq, false) !== -1;
+    const hasNewWs = this.findSubsequence(curLines, newSeq, true) !== -1;
+    // Pure insertion: if we already see the intended insertion block, do nothing.
+    if (minusOnly.length === 0 && plusOnly.length > 0) {
+      if (hasNewExact || hasNewWs) {
+        return { ok: true, text: current, note: 'Insertion already present; skipping' };
+      }
+    }
+    // Replacement: if the "new" block exists already, treat as already applied.
+    if (minusOnly.length > 0 && plusOnly.length > 0) {
+      if (hasNewExact || hasNewWs) {
+        return { ok: true, text: current, note: 'Replacement already present; skipping' };
+      }
+    }
+    // Deletion: if all the minus-lines are already absent (no contiguous or ws-insensitive match),
+    // consider it already applied.
+    if (plusOnly.length === 0 && minusOnly.length > 0) {
+      const minusContigExact = this.findSubsequence(curLines, minusOnly, false) !== -1;
+      const minusContigWs = this.findSubsequence(curLines, minusOnly, true) !== -1;
+      if (!minusContigExact && !minusContigWs) {
+        return { ok: true, text: current, note: 'Deletion already applied; skipping' };
+      }
+    }
+
     // Pure insertion: no deletions, only context + additions
     if (minusOnly.length === 0 && plusOnly.length > 0) {
       // Try to anchor after leading context
@@ -2109,9 +2135,9 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
           insertPos = this.findSubsequenceAdv(curLines, trailingCtx, { ignoreWs: true, trimRight: true });
         }
       }
+      // Avoid blindly appending to end; if we cannot anchor reliably, skip to prevent duplication
       if (insertPos === -1) {
-        // Fallback: append to end
-        insertPos = curLines.length;
+        return { ok: false, note: 'Pure insertion: context not found; skip to avoid duplication' };
       }
       const next = [
         ...curLines.slice(0, insertPos),
