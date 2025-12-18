@@ -1780,6 +1780,272 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
     this._view?.webview.postMessage({ type: 'addResponse', value: chat_response });
   }
 
+  // Return all indices where a line matches (exact or whitespace-normalized)
+  private findAllLineMatches(lines: string[], needle: string): number[] {
+    const out: number[] = [];
+    const normNeedle = this.normalizeWs(needle);
+    for (let i = 0; i < lines.length; i++) {
+      const li = lines[i];
+      if (li === needle || this.normalizeWs(li) === normNeedle) {
+        out.push(i);
+      }
+    }
+    return out;
+  }
+
+  // Simple wrapper using the advanced comparator for convenience
+  private findSubsequence(hay: string[], needle: string[], ignoreWs: boolean): number {
+    return this.findSubsequenceAdv(hay, needle, { ignoreWs, trimRight: true });
+  }
+
+  // Ordered-with-slop finder: keeps the order of needle items, allows gaps,
+  // and confines match within a bounded window.
+  private findOrderedWithSlop(
+    hay: string[],
+    needle: string[],
+    opts?: { ignoreWs?: boolean; ignoreIndent?: boolean; trimRight?: boolean },
+    maxGap = 3,
+    maxWindowLen = 500
+  ): { start: number; end: number; indexes: number[] } | null {
+    if (!needle.length) return null;
+    const norm = (s: string) => this.normalizeLineForCompare(s, opts);
+    const n0 = norm(needle[0]);
+    const starts: number[] = [];
+    for (let i = 0; i < hay.length; i++) {
+      if (norm(hay[i]) === n0) starts.push(i);
+    }
+    for (const sIdx of starts) {
+      const limit = Math.min(hay.length, sIdx + maxWindowLen);
+      let curPos = sIdx;
+      const idxs = [sIdx];
+      let ok = true;
+      for (let k = 1; k < needle.length; k++) {
+        const target = norm(needle[k]);
+        let found = -1;
+        const maxSearchTo = Math.min(limit, curPos + 1 + 1 + maxGap + (k === needle.length - 1 ? maxGap : maxGap));
+        for (let j = curPos + 1; j < limit && j <= maxSearchTo; j++) {
+          if (norm(hay[j]) === target) { found = j; break; }
+        }
+        if (found === -1) { ok = false; break; }
+        idxs.push(found);
+        curPos = found;
+      }
+      if (ok) {
+        return { start: idxs[0], end: idxs[idxs.length - 1], indexes: idxs };
+    }
+    }
+    return null;
+  }
+
+  // Legacy/global hunk applier used as a fallback when hinted/windowed attempts fail.
+  private applyHunkToText(
+    current: string,
+    hunkLines: string[]
+  ): { ok: boolean; text?: string; via?: 'exact' | 'whitespace' | 'indent' | 'anchor' | 'ordered' | 'insert' | 'delete' | 'fuzzy'; note?: string } {
+    const curLines = current.replace(/\r\n/g, '\n').split('\n');
+    const oldItems = hunkLines
+      .filter(l => l.startsWith(' ') || l.startsWith('-'))
+      .map(l => ({ kind: l[0] as ' ' | '-', text: l.slice(1) }));
+    const newSeq = hunkLines
+      .filter(l => l.startsWith(' ') || l.startsWith('+'))
+      .map(l => l.slice(1));
+    const oldSeq = oldItems.map(x => x.text);
+    const minusOnly = hunkLines.filter(l => l.startsWith('-')).map(l => l.slice(1));
+    const plusOnly = hunkLines.filter(l => l.startsWith('+')).map(l => l.slice(1));
+
+    // Idempotency guards
+    const hasNewExact = newSeq.length ? this.findSubsequence(curLines, newSeq, false) !== -1 : false;
+    const hasNewWs = newSeq.length ? this.findSubsequence(curLines, newSeq, true) !== -1 : false;
+    const hasPlusExact = plusOnly.length ? this.findSubsequence(curLines, plusOnly, false) !== -1 : false;
+    const hasPlusWs = plusOnly.length ? this.findSubsequence(curLines, plusOnly, true) !== -1 : false;
+    if (minusOnly.length === 0 && plusOnly.length > 0) {
+      if (hasNewExact || hasNewWs || hasPlusExact || hasPlusWs) {
+        return { ok: true, text: current, note: 'Insertion already present; skipping' };
+      }
+    }
+    if (minusOnly.length > 0 && plusOnly.length > 0) {
+      if (hasNewExact || hasNewWs) {
+        return { ok: true, text: current, note: 'Replacement already present; skipping' };
+      }
+    }
+    if (plusOnly.length === 0 && minusOnly.length > 0) {
+      const minusContigExact = this.findSubsequence(curLines, minusOnly, false) !== -1;
+      const minusContigWs = this.findSubsequence(curLines, minusOnly, true) !== -1;
+      if (!minusContigExact && !minusContigWs) {
+        return { ok: true, text: current, note: 'Deletion already applied; skipping' };
+      }
+    }
+
+    // Pure deletion
+    if (plusOnly.length === 0 && minusOnly.length > 0) {
+      let idx = this.findSubsequence(curLines, minusOnly, false);
+      if (idx !== -1) {
+        const next = [...curLines.slice(0, idx), ...curLines.slice(idx + minusOnly.length)];
+        return { ok: true, text: next.join('\n'), via: 'delete' };
+      }
+      idx = this.findSubsequence(curLines, minusOnly, true);
+      if (idx !== -1) {
+        const next = [...curLines.slice(0, idx), ...curLines.slice(idx + minusOnly.length)];
+        return { ok: true, text: next.join('\n'), via: 'whitespace' };
+      }
+    }
+
+    // Pure insertion: anchor by leading or trailing context
+    if (minusOnly.length === 0 && plusOnly.length > 0) {
+      const leadingCtx: string[] = [];
+      for (const l of hunkLines) { if (l.startsWith(' ')) leadingCtx.push(l.slice(1)); else break; }
+      let insertPos = -1;
+      if (leadingCtx.length > 0) {
+        let idx = this.findSubsequenceAdv(curLines, leadingCtx, { ignoreWs: true, trimRight: true });
+        if (idx !== -1) insertPos = idx + leadingCtx.length;
+      }
+      if (insertPos === -1) {
+        const trailingCtx: string[] = [];
+        for (let i = hunkLines.length - 1; i >= 0; i--) {
+          const l = hunkLines[i];
+          if (l.startsWith(' ')) trailingCtx.unshift(l.slice(1));
+          else break;
+        }
+        if (trailingCtx.length > 0) {
+          const idx2 = this.findSubsequenceAdv(curLines, trailingCtx, { ignoreWs: true, trimRight: true });
+          if (idx2 !== -1) insertPos = idx2;
+        }
+      }
+      if (insertPos !== -1) {
+        // Try to preserve reasonable indentation relative to previous line
+        const prevLine = insertPos > 0 ? curLines[insertPos - 1] : '';
+        const targetIndent = this.getIndentString(prevLine);
+        const baseIndent = this.minCommonIndent(plusOnly);
+        const reindented = plusOnly.map(line => {
+          if (line.trim().length === 0) return line;
+          const curIndent = this.getIndentString(line);
+          const delta = curIndent.length - baseIndent.length;
+          if (delta <= 0) return targetIndent + line.slice(curIndent.length);
+          return targetIndent + ' '.repeat(delta) + line.slice(curIndent.length);
+        });
+        const next = [...curLines.slice(0, insertPos), ...reindented, ...curLines.slice(insertPos)];
+        return { ok: true, text: next.join('\n'), via: 'insert' };
+      }
+    }
+
+    // Replacement: try contiguous exact, whitespace, indentation, then ordered-with-slop
+    if (oldSeq.length > 0) {
+      let idx = this.findSubsequence(curLines, oldSeq, false);
+      if (idx !== -1) {
+        const next = [...curLines.slice(0, idx), ...newSeq, ...curLines.slice(idx + oldSeq.length)];
+        return { ok: true, text: next.join('\n'), via: 'exact' };
+      }
+      idx = this.findSubsequence(curLines, oldSeq, true);
+      if (idx !== -1) {
+        const next = [...curLines.slice(0, idx), ...newSeq, ...curLines.slice(idx + oldSeq.length)];
+        return { ok: true, text: next.join('\n'), via: 'whitespace' };
+      }
+      const idxIndent = this.findSubsequenceAdv(curLines, oldSeq, { ignoreIndent: true, trimRight: true });
+      if (idxIndent !== -1) {
+        const next = [...curLines.slice(0, idxIndent), ...newSeq, ...curLines.slice(idxIndent + oldSeq.length)];
+        return { ok: true, text: next.join('\n'), via: 'indent' };
+      }
+      const ordered = this.findOrderedWithSlop(curLines, oldSeq, { ignoreWs: true, trimRight: true }, 3, 1200);
+      if (ordered) {
+        const next = [
+          ...curLines.slice(0, ordered.start),
+          ...newSeq,
+          ...curLines.slice(ordered.end + 1)
+        ];
+        return { ok: true, text: next.join('\n'), via: 'ordered' };
+      }
+    }
+    return { ok: false, note: 'Legacy apply failed' };
+  }
+
+  // Minimal unified-diff parser for multiple files and hunks.
+  private parseUnifiedDiff(diffText: string): Array<{
+    oldPath: string;
+    newPath: string;
+    hunks: Array<{ header: string; lines: string[] }>;
+  }> {
+    const lines = diffText.replace(/\r\n/g, '\n').split('\n');
+    const files: Array<{ oldPath: string; newPath: string; hunks: Array<{ header: string; lines: string[] }> }> = [];
+    let curFile: { oldPath: string; newPath: string; hunks: Array<{ header: string; lines: string[] }> } | null = null;
+    let curHunk: { header: string; lines: string[] } | null = null;
+    let pendingOld: string | null = null;
+
+    const cleanPath = (p: string) => {
+      const s = p.trim();
+      if (s === '/dev/null') return '/dev/null';
+      return s.replace(/^a\//, '').replace(/^b\//, '');
+    };
+
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i];
+      if (l.startsWith('--- ')) {
+        pendingOld = l.slice(4).trim();
+        continue;
+      }
+      if (l.startsWith('+++ ')) {
+        const newP = l.slice(4).trim();
+        if (pendingOld === null) continue;
+        curFile = {
+          oldPath: cleanPath(pendingOld),
+          newPath: cleanPath(newP),
+          hunks: []
+        };
+        files.push(curFile);
+        curHunk = null;
+        pendingOld = null;
+        continue;
+      }
+      if (l.startsWith('@@ ')) {
+        if (!curFile) continue;
+        curHunk = { header: l, lines: [] };
+        curFile.hunks.push(curHunk);
+        continue;
+      }
+      if (curHunk && (l.startsWith(' ') || l.startsWith('+') || l.startsWith('-'))) {
+        curHunk.lines.push(l);
+        continue;
+      }
+      // ignore other lines (blank lines between hunks etc.)
+    }
+    return files;
+  }
+
+  // Workspace file helpers (async) used by patch applier
+  private async readWorkspaceFileOptional(relPath: string): Promise<string | null> {
+    const folders = vscode.workspace.workspaceFolders || [];
+    for (const f of folders) {
+      const abs = path.join(f.uri.fsPath, relPath);
+      try {
+        const data = await fsp.readFile(abs, 'utf8');
+        return data.replace(/\r\n/g, '\n');
+      } catch {
+        // try next folder
+      }
+    }
+    return null;
+  }
+
+  private async writeWorkspaceFile(relPath: string, content: string): Promise<void> {
+    const folders = vscode.workspace.workspaceFolders || [];
+    if (!folders.length) throw new Error('No workspace folder.');
+    const base = folders[0].uri.fsPath;
+    const abs = path.join(base, relPath);
+    await fsp.mkdir(path.dirname(abs), { recursive: true });
+    await fsp.writeFile(abs, content, 'utf8');
+  }
+
+  private async deleteWorkspaceFile(relPath: string): Promise<void> {
+    const folders = vscode.workspace.workspaceFolders || [];
+    if (!folders.length) throw new Error('No workspace folder.');
+    const base = folders[0].uri.fsPath;
+    const abs = path.join(base, relPath);
+    try {
+      await fsp.unlink(abs);
+    } catch {
+      // ignore if already gone
+    }
+  }
+
   // ---------------------------
   // Diff/Patch application logic
   // ---------------------------
@@ -1886,6 +2152,36 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
     }
     return out;
   }
+  // Extract the old-start line number from a unified diff hunk header:
+  // @@ -<oldStart>[,<oldLen>] +<newStart>[,<newLen}] @@
+  private parseOldStartFromHunkHeader(header: string): number | null {
+    if (typeof header !== 'string') return null;
+    // Normalize any CRLF
+    const h = header.replace(/\r\n/g, '\n');
+    const m = h.match(/@@\s*-(\d+)(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s*@@/);
+    if (m && m[1]) {
+      const n = parseInt(m[1], 10);
+      return Number.isFinite(n) && n > 0 ? n : null;
+    }
+    return null;
+  }
+
+  // Simple indentation helpers for insertion cases
+  private getIndentString(s: string): string {
+    const m = s.match(/^[ \t]*/);
+    return m ? m[0] : '';
+  }
+  private minCommonIndent(lines: string[]): string {
+    const nonEmpty = lines.filter(l => l.trim().length > 0);
+    if (!nonEmpty.length) return '';
+    let min: number | null = null;
+    for (const l of nonEmpty) {
+      const ind = this.getIndentString(l).length;
+      if (min === null || ind < min) min = ind;
+    }
+    return ' '.repeat(min || 0);
+  }
+
 
   // Convert an OpenAI Update File chunk into a unified diff string
   private convertOpenAIPatchUpdateToUnified(u: { path: string; body: string }): string {
@@ -1950,378 +2246,202 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
     }
     return -1;
   }
-
-  // New: ordered matching with "slop" (allowing gaps) within a bounded window
-  private findOrderedWithSlop(
-    hay: string[],
-    seq: string[],
-    opts?: { ignoreWs?: boolean; ignoreIndent?: boolean; trimRight?: boolean },
-    maxGap = 3,
-    maxWindow = 500
-  ): { start: number; end: number; indexes: number[] } | null {
-    if (seq.length === 0) return { start: 0, end: -1, indexes: [] };
-    const idxs: number[] = [];
-    let i = 0;
-    let start = -1;
-    for (let k = 0; k < seq.length; k++) {
-      const target = this.normalizeLineForCompare(seq[k], opts);
-      let found = -1;
-      let gap = 0;
-      for (; i < hay.length; i++) {
-        const h = this.normalizeLineForCompare(hay[i], opts);
-        if (h === target) {
-          found = i;
-          break;
-        }
-        gap++;
-        if (gap > maxGap && idxs.length > 0) {
-          if ((i - idxs[0]) > maxWindow) return null;
-        }
-      }
-      if (found === -1) return null;
-      if (start === -1) start = found;
-      idxs.push(found);
-      i = found + 1;
-      if ((found - start) > maxWindow) return null;
-    }
-    const end = idxs[idxs.length - 1];
-    return { start, end, indexes: idxs };
-  }
-  private stripPrefix(p: string): string {
-    // a/path, b/path, /dev/null -> normalize
-    if (p === '/dev/null') return p;
-    return p.replace(/^[ab]\//, '');
-  }
-
-  private parseUnifiedDiff(diffText: string): Array<{
-    oldPath: string;
-    newPath: string;
-    hunks: Array<{ header: string; lines: string[] }>;
-  }> {
-    const lines = diffText.replace(/\r\n/g, '\n').split('\n');
-    const files: Array<{ oldPath: string; newPath: string; hunks: Array<{ header: string; lines: string[] }> }> = [];
-    let i = 0;
-    while (i < lines.length) {
-      // find next file header
-      while (i < lines.length && !lines[i].startsWith('--- ')) i++;
-      if (i >= lines.length) break;
-      const oldLine = lines[i++] || '';
-      const newLine = lines[i++] || '';
-      const oldPath = this.stripPrefix((oldLine.split(/\s+/)[1] || '').trim());
-      const newPath = this.stripPrefix((newLine.split(/\s+/)[1] || '').trim());
-      const hunks: Array<{ header: string; lines: string[] }> = [];
-      while (i < lines.length && lines[i].startsWith('@@')) {
-        const header = lines[i++] || '';
-        const hunkLines: string[] = [];
-        while (i < lines.length && !lines[i].startsWith('@@') && !lines[i].startsWith('--- ')) {
-          hunkLines.push(lines[i++]);
-        }
-        hunks.push({ header, lines: hunkLines });
-      }
-      files.push({ oldPath, newPath, hunks });
-    }
-    return files;
-  }
-
-  private async readWorkspaceFileOptional(relPath: string): Promise<string | null> {
-    const folders = vscode.workspace.workspaceFolders || [];
-    for (const f of folders) {
-      const abs = path.join(f.uri.fsPath, relPath);
-      try {
-        const buf = await fsp.readFile(abs, 'utf8');
-        return buf;
-      } catch { /* try next */ }
-    }
-    return null;
-  }
-
-  private async writeWorkspaceFile(relPath: string, content: string): Promise<void> {
-    const folders = vscode.workspace.workspaceFolders || [];
-    if (!folders || folders.length === 0) throw new Error('No workspace.');
-    const root = folders[0].uri.fsPath;
-    const abs = path.join(root, relPath);
-    await fsp.mkdir(path.dirname(abs), { recursive: true });
-    await fsp.writeFile(abs, content, 'utf8');
-  }
-
-  private async deleteWorkspaceFile(relPath: string): Promise<void> {
-    const folders = vscode.workspace.workspaceFolders || [];
-    if (!folders || folders.length === 0) throw new Error('No workspace.');
-    const root = folders[0].uri.fsPath;
-    const abs = path.join(root, relPath);
-    try {
-      await fsp.unlink(abs);
-    } catch (e: any) {
-      if (e && e.code === 'ENOENT') return;
-      throw e;
-    }
-  }
-
-  // Stronger hunk applier with multiple strategies
-  private applyHunkToText(
+  // Enhanced hunk applier variant that leverages the header's oldStart as a locality hint.
+  // Falls back to the legacy applyHunkToText if needed.
+  private applyHunkToTextWithHint(
     current: string,
-    hunkLines: string[]
-  ): {
-    ok: boolean;
-    text?: string;
-    via?: 'exact' | 'whitespace' | 'indent' | 'anchor' | 'ordered' | 'insert' | 'delete' | 'fuzzy';
-    note?: string;
-  } {
+    hunkLines: string[],
+    hint?: { approxIndex?: number }
+  ) {
+    // Reuse the legacy implementation but first attempt localized windowed strategies.
+    // Clone of core logic with window-constrained attempts and insertion reindent option.
     const curLines = current.replace(/\r\n/g, '\n').split('\n');
-
-    // Prepare sequences
     const oldItems = hunkLines
       .filter(l => l.startsWith(' ') || l.startsWith('-'))
       .map(l => ({ kind: l[0] as ' ' | '-', text: l.slice(1) }));
-
     const newSeq = hunkLines
       .filter(l => l.startsWith(' ') || l.startsWith('+'))
       .map(l => l.slice(1));
-
     const oldSeq = oldItems.map(x => x.text);
     const minusOnly = hunkLines.filter(l => l.startsWith('-')).map(l => l.slice(1));
     const plusOnly = hunkLines.filter(l => l.startsWith('+')).map(l => l.slice(1));
 
-    // Idempotency/duplication guards: if the "new" content already exists,
-    // or the "old" content is already gone, skip to avoid duplicate insertions.
+    // Idempotency/duplication guards (same as legacy)
     const hasNewExact = this.findSubsequence(curLines, newSeq, false) !== -1;
     const hasNewWs = this.findSubsequence(curLines, newSeq, true) !== -1;
-    // For insert-only hunks, also check if the plus-only block is already present
     const hasPlusExact = plusOnly.length > 0 ? this.findSubsequence(curLines, plusOnly, false) !== -1 : false;
     const hasPlusWs = plusOnly.length > 0 ? this.findSubsequence(curLines, plusOnly, true) !== -1 : false;
-    // Pure insertion: if we already see the intended insertion block, do nothing.
     if (minusOnly.length === 0 && plusOnly.length > 0) {
       if (hasNewExact || hasNewWs || hasPlusExact || hasPlusWs) {
-        return { ok: true, text: current, note: 'Insertion already present; skipping' };
+        return { ok: true as const, text: current, note: 'Insertion already present; skipping' };
       }
     }
-    // Replacement: if the "new" block exists already, treat as already applied.
     if (minusOnly.length > 0 && plusOnly.length > 0) {
       if (hasNewExact || hasNewWs) {
-        return { ok: true, text: current, note: 'Replacement already present; skipping' };
+        return { ok: true as const, text: current, note: 'Replacement already present; skipping' };
       }
     }
-    // Deletion: if all the minus-lines are already absent (no contiguous or ws-insensitive match),
-    // consider it already applied.
     if (plusOnly.length === 0 && minusOnly.length > 0) {
       const minusContigExact = this.findSubsequence(curLines, minusOnly, false) !== -1;
       const minusContigWs = this.findSubsequence(curLines, minusOnly, true) !== -1;
       if (!minusContigExact && !minusContigWs) {
-        return { ok: true, text: current, note: 'Deletion already applied; skipping' };
+        return { ok: true as const, text: current, note: 'Deletion already applied; skipping' };
       }
     }
 
-    // Pure insertion: no deletions, only context + additions
-    if (minusOnly.length === 0 && plusOnly.length > 0) {
-      // Try to anchor after leading context
-      const leadingCtx: string[] = [];
-      for (const l of hunkLines) {
-        if (l.startsWith(' ')) leadingCtx.push(l.slice(1)); else break;
-      }
-      let insertPos = -1;
+    // If we have an approxIndex hint, try localized windowed searches first
+    const approx = hint?.approxIndex;
+    const tryWindow = (radiusA: number, radiusB: number) => {
+      if (approx == null || approx < 0) return null as { ok: boolean; text?: string; via?: any; note?: string } | null;
+      const start = Math.max(0, approx - radiusA);
+      const end = Math.min(curLines.length, approx + radiusB);
+      const win = curLines.slice(start, end);
 
-      if (leadingCtx.length > 0) {
-        insertPos = this.findSubsequenceAdv(curLines, leadingCtx, { ignoreWs: true, trimRight: true });
-        if (insertPos !== -1) {
-          insertPos = insertPos + leadingCtx.length; // insert after leading context
-        }
-      }
-      if (insertPos === -1) {
-        // Try trailing context: insert before it
-        const trailingCtx: string[] = [];
-        for (let i = hunkLines.length - 1; i >= 0; i--) {
-          const l = hunkLines[i];
-          if (l.startsWith(' ')) trailingCtx.unshift(l.slice(1));
-          else break;
-        }
-        if (trailingCtx.length > 0) {
-          insertPos = this.findSubsequenceAdv(curLines, trailingCtx, { ignoreWs: true, trimRight: true });
-        }
-      }
-      // Avoid blindly appending to end; if we cannot anchor reliably, skip to prevent duplication
-      if (insertPos === -1) {
-        return { ok: false, note: 'Pure insertion: context not found; skip to avoid duplication' };
-      }
-      // Insert only the added lines, not the surrounding context
-      const toInsert = plusOnly;
-      const next = [
-        ...curLines.slice(0, insertPos),
-        ...toInsert,
-        ...curLines.slice(insertPos)
-      ];
-      return { ok: true, text: next.join('\n'), via: 'insert', note: 'Pure insertion of additions' };
-    }
-
-    // Pure deletion: only '-' lines (maybe with context)
-    if (plusOnly.length === 0 && minusOnly.length > 0) {
-      // Try to remove oldSeq region
-      let idx = this.findSubsequenceAdv(curLines, oldSeq, { ignoreWs: false });
-      if (idx === -1) idx = this.findSubsequenceAdv(curLines, oldSeq, { ignoreWs: true, trimRight: true });
-      if (idx === -1) idx = this.findSubsequenceAdv(curLines, oldSeq, { ignoreIndent: true, trimRight: true });
-
-      // If still not found, try just the minusOnly block
-      if (idx === -1) {
-        const idxMinus = this.findSubsequenceAdv(curLines, minusOnly, { ignoreWs: true, trimRight: true });
-        if (idxMinus !== -1) {
-          const next = [
-            ...curLines.slice(0, idxMinus),
-            ...curLines.slice(idxMinus + minusOnly.length)
-          ];
-          return { ok: true, text: next.join('\n'), via: 'delete', note: 'Minus-only removal' };
-        }
-      } else {
+      // A) exact contiguous in window
+      let idx = this.findSubsequence(win, oldSeq, false);
+      if (idx !== -1) {
+        const abs = start + idx;
         const next = [
-          ...curLines.slice(0, idx),
-          ...curLines.slice(idx + oldSeq.length)
-        ];
-        return { ok: true, text: next.join('\n'), via: 'delete', note: 'Deleted oldSeq region' };
-      }
-      // Fall through to more general strategies
-    }
-
-    // Strategy A: exact contiguous match (legacy)
-    {
-      const idxExact = this.findSubsequence(curLines, oldSeq, false);
-      if (idxExact !== -1) {
-        const next = [
-          ...curLines.slice(0, idxExact),
+          ...curLines.slice(0, abs),
           ...newSeq,
-          ...curLines.slice(idxExact + oldSeq.length)
+          ...curLines.slice(abs + oldSeq.length)
         ];
         return { ok: true, text: next.join('\n'), via: 'exact' };
       }
-    }
-
-    // Strategy B: whitespace-insensitive contiguous
-    {
-      const idxWs = this.findSubsequence(curLines, oldSeq, true);
-      if (idxWs !== -1) {
+      // B) whitespace-insensitive contiguous in window
+      idx = this.findSubsequence(win, oldSeq, true);
+      if (idx !== -1) {
+        const abs = start + idx;
         const next = [
-          ...curLines.slice(0, idxWs),
+          ...curLines.slice(0, abs),
           ...newSeq,
-          ...curLines.slice(idxWs + oldSeq.length)
+          ...curLines.slice(abs + oldSeq.length)
         ];
         return { ok: true, text: next.join('\n'), via: 'whitespace' };
       }
-    }
+      // C) indentation-insensitive contiguous in window
+      {
+        const idxIndent = this.findSubsequenceAdv(win, oldSeq, { ignoreIndent: true, trimRight: true });
+        if (idxIndent !== -1) {
+          const abs = start + idxIndent;
+          const next = [
+            ...curLines.slice(0, abs),
+            ...newSeq,
+            ...curLines.slice(abs + oldSeq.length)
+          ];
+          return { ok: true, text: next.join('\n'), via: 'indent' };
+        }
+      }
+      // D) ordered-with-slop in window (bounded)
+      {
+        const ordered = this.findOrderedWithSlop(win, oldSeq, { ignoreWs: true, trimRight: true }, 3, 500);
+        if (ordered) {
+          let startIdx = ordered.start;
+          let endIdx = ordered.end;
+          const ctxIdxsInSeq: number[] = [];
+          oldItems.forEach((it, i) => { if (it.kind === ' ') ctxIdxsInSeq.push(i); });
+          if (ctxIdxsInSeq.length >= 1) {
+            const firstCtxIdx = ctxIdxsInSeq[0];
+            const lastCtxIdx = ctxIdxsInSeq[ctxIdxsInSeq.length - 1];
+            if (firstCtxIdx < ordered.indexes.length && lastCtxIdx < ordered.indexes.length) {
+              startIdx = ordered.indexes[firstCtxIdx];
+              endIdx = ordered.indexes[lastCtxIdx];
+            }
+          }
+          const absStart = start + startIdx;
+          const absEnd = start + endIdx;
+          const next = [
+            ...curLines.slice(0, absStart),
+            ...newSeq,
+            ...curLines.slice(absEnd + 1)
+          ];
+          return { ok: true, text: next.join('\n'), via: 'ordered', note: 'Applied with slop window (hinted)' };
+        }
+      }
+      return null;
+    };
 
-    // Strategy C: indentation-insensitive contiguous
-    {
-      const idxIndent = this.findSubsequenceAdv(curLines, oldSeq, { ignoreIndent: true, trimRight: true });
-      if (idxIndent !== -1) {
+    // If pure insertion, try to anchor near hint via leading/trailing context and adjust indentation
+    if (minusOnly.length === 0 && plusOnly.length > 0) {
+      // Try windowed anchor first
+      const tryIns = () => {
+        const leadingCtx: string[] = [];
+        for (const l of hunkLines) {
+          if (l.startsWith(' ')) leadingCtx.push(l.slice(1)); else break;
+        }
+        let insertPos = -1;
+        if (leadingCtx.length > 0) {
+          // windowed search for leading context
+          if (approx != null && approx >= 0) {
+            const start = Math.max(0, approx - 80);
+            const end = Math.min(curLines.length, approx + 300);
+            const win = curLines.slice(start, end);
+            let idx = this.findSubsequenceAdv(win, leadingCtx, { ignoreWs: true, trimRight: true });
+            if (idx !== -1) insertPos = start + idx + leadingCtx.length;
+          }
+          if (insertPos === -1) {
+            let idx = this.findSubsequenceAdv(curLines, leadingCtx, { ignoreWs: true, trimRight: true });
+            if (idx !== -1) insertPos = idx + leadingCtx.length;
+          }
+        }
+        if (insertPos === -1) {
+          const trailingCtx: string[] = [];
+          for (let i = hunkLines.length - 1; i >= 0; i--) {
+            const l = hunkLines[i];
+            if (l.startsWith(' ')) trailingCtx.unshift(l.slice(1));
+            else break;
+          }
+          if (trailingCtx.length > 0) {
+            if (approx != null && approx >= 0) {
+              const start = Math.max(0, approx - 80);
+              const end = Math.min(curLines.length, approx + 300);
+              const win = curLines.slice(start, end);
+              let idx = this.findSubsequenceAdv(win, trailingCtx, { ignoreWs: true, trimRight: true });
+              if (idx !== -1) insertPos = start + idx; // before trailing
+            }
+            if (insertPos === -1) {
+              let idx = this.findSubsequenceAdv(curLines, trailingCtx, { ignoreWs: true, trimRight: true });
+              if (idx !== -1) insertPos = idx; // before trailing
+            }
+          }
+        }
+        if (insertPos === -1) return null;
+
+        // Optional indentation preservation: align inserted lines to surrounding style
+        const prevLine = insertPos > 0 ? curLines[insertPos - 1] : '';
+        const targetIndent = this.getIndentString(prevLine);
+        const baseIndent = this.minCommonIndent(plusOnly);
+        const reindented = plusOnly.map(line => {
+          if (line.trim().length === 0) return line; // keep blank lines
+          const curIndent = this.getIndentString(line);
+          // Compute relative indent delta from the baseIndent
+          const delta = curIndent.length - baseIndent.length;
+          if (delta <= 0) return targetIndent + line.slice(curIndent.length);
+          // keep extra relative indentation beyond base
+          return targetIndent + ' '.repeat(delta) + line.slice(curIndent.length);
+        });
         const next = [
-          ...curLines.slice(0, idxIndent),
-          ...newSeq,
-          ...curLines.slice(idxIndent + oldSeq.length)
+          ...curLines.slice(0, insertPos),
+          ...reindented,
+          ...curLines.slice(insertPos)
         ];
-        return { ok: true, text: next.join('\n'), via: 'indent' };
-      }
+        return { ok: true, text: next.join('\n'), via: 'insert', note: 'Pure insertion with indent adjust' };
+      };
+      const insRes = tryIns();
+      if (insRes) return insRes;
     }
 
-    // Strategy D: fuzzy window using first/last context (existing)
-    {
-      const firstCtx = hunkLines.find(l => l.startsWith(' '));
-      const lastCtx = [...hunkLines].reverse().find(l => l.startsWith(' '));
-      if (firstCtx) {
-        const anchor = firstCtx.slice(1);
-        const candIdxs = this.findAllLineMatches(curLines, anchor);
-        for (const base of candIdxs) {
-          const start = Math.max(0, base - 50);
-          const end = Math.min(curLines.length, base + 200);
-          const windowLines = curLines.slice(start, end);
-          const idxInWin = this.findSubsequenceAdv(windowLines, oldSeq, { ignoreWs: true, trimRight: true });
-          if (idxInWin !== -1) {
-            const absIdx = start + idxInWin;
-            const next = [
-              ...curLines.slice(0, absIdx),
-              ...newSeq,
-              ...curLines.slice(absIdx + oldSeq.length)
-            ];
-            return { ok: true, text: next.join('\n'), via: 'anchor' };
-          }
-        }
-      }
+    // Localized replacement attempts (windowed)
+    if (approx != null && approx >= 0 && oldSeq.length > 0) {
+      // Try a small then larger window
+      const small = tryWindow(30, 120);
+      if (small) return small;
+      const big = tryWindow(80, 400);
+      if (big) return big;
     }
 
-    // Strategy E: ordered matching with gaps (slop), then replace minimal region
-    {
-      const ordered = this.findOrderedWithSlop(curLines, oldSeq, { ignoreWs: true, trimRight: true }, 3, 500);
-      if (ordered) {
-        // Prefer region bounded by first and last matched CONTEXT lines if present
-        let start = ordered.start;
-        let end = ordered.end;
-
-        const ctxIdxsInSeq: number[] = [];
-        oldItems.forEach((it, i) => { if (it.kind === ' ') ctxIdxsInSeq.push(i); });
-        if (ctxIdxsInSeq.length >= 1) {
-          const firstCtxIdx = ctxIdxsInSeq[0];
-          const lastCtxIdx = ctxIdxsInSeq[ctxIdxsInSeq.length - 1];
-          if (firstCtxIdx < ordered.indexes.length && lastCtxIdx < ordered.indexes.length) {
-            start = ordered.indexes[firstCtxIdx];
-            end = ordered.indexes[lastCtxIdx];
-          }
-        }
-
-        const next = [
-          ...curLines.slice(0, start),
-          ...newSeq,
-          ...curLines.slice(end + 1)
-        ];
-        return { ok: true, text: next.join('\n'), via: 'ordered', note: 'Applied with slop window' };
-      }
-    }
-
-    // Last resort: try very fuzzy window (increase range)
-    {
-      const firstCtx = hunkLines.find(l => l.startsWith(' '));
-      if (firstCtx) {
-        const anchor = firstCtx.slice(1);
-        const candIdxs = this.findAllLineMatches(curLines, anchor);
-        for (const base of candIdxs) {
-          const start = Math.max(0, base - 200);
-          const end = Math.min(curLines.length, base + 500);
-          const windowLines = curLines.slice(start, end);
-          const idxInWin = this.findSubsequenceAdv(windowLines, oldSeq, { ignoreIndent: true, trimRight: true });
-          if (idxInWin !== -1) {
-            const absIdx = start + idxInWin;
-            const next = [
-              ...curLines.slice(0, absIdx),
-              ...newSeq,
-              ...curLines.slice(absIdx + oldSeq.length)
-            ];
-            return { ok: true, text: next.join('\n'), via: 'fuzzy' };
-          }
-        }
-      }
-    }
-
-    return { ok: false };
-  }
-
-  private findAllLineMatches(lines: string[], needle: string): number[] {
-    const out: number[] = [];
-    const normNeedle = this.normalizeWs(needle);
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i] === needle || this.normalizeWs(lines[i]) === normNeedle) out.push(i);
-    }
-    return out;
-  }
-
-  private findSubsequence(hay: string[], needle: string[], ignoreWs: boolean): number {
-    if (needle.length === 0) return 0;
-    const n0 = ignoreWs ? this.normalizeWs(needle[0]) : needle[0];
-    for (let i = 0; i + needle.length <= hay.length; i++) {
-      const h0 = ignoreWs ? this.normalizeWs(hay[i]) : hay[i];
-      if (h0 !== n0) continue;
-      let ok = true;
-      for (let j = 1; j < needle.length; j++) {
-        const hj = ignoreWs ? this.normalizeWs(hay[i + j]) : hay[i + j];
-        const nj = ignoreWs ? this.normalizeWs(needle[j]) : needle[j];
-        if (hj !== nj) { ok = false; break; }
-      }
-      if (ok) return i;
-    }
-    return -1;
+    // Fallback to legacy full-document strategies
+    return this.applyHunkToText(current, hunkLines);
   }
 
   private async applyUnifiedDiffBlock(
@@ -2384,9 +2504,15 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
       let cur = before;
       let anyHunkApplied = false;
       let localAppliedVia: Array<'exact' | 'whitespace' | 'indent' | 'anchor' | 'ordered' | 'insert' | 'delete' | 'fuzzy'> = [];
-
       for (const h of file.hunks) {
-        const res = this.applyHunkToText(cur, h.lines);
+        // Prefer hinted localized application using hunk header oldStart line number.
+        let approxLine: number | null = null;
+        try {
+          approxLine = this.parseOldStartFromHunkHeader(h.header);
+        } catch { /* ignore */ }
+        const res = this.applyHunkToTextWithHint(cur, h.lines, {
+          approxIndex: (approxLine != null ? Math.max(0, approxLine - 1) : undefined)
+        });
         if (!res.ok || !res.text) {
           rejections.push({
             path: targetPath,
