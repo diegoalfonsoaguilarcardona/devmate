@@ -325,17 +325,26 @@ npm run update-package-lock
 
 This project uses vsce to create the .vsix.
 
-Recommended (auto version bump on each package):
+You now have three options depending on your workflow:
 
 ```bash
-# build, bump patch version in package.json, create VSIX
-yarn package:vsix         # or: npm run package:vsix
+# 1) Build only (no version bump, no VSIX)
+yarn package
+
+# 2) Build and create VSIX without bumping the version
+yarn package:vsix:nobump
+
+# 3) Build, bump patch version in package.json, then create VSIX (recommended for releases)
+yarn package:vsix
+
 
 # install locally
 code --install-extension devmate-ai-chat-*.vsix
 ```
 
 Notes:
+- The package script (yarn package) only builds the production bundle. It does not modify version or produce a VSIX.
+- The package:vsix:nobump script builds and packages using the current version in package.json (no version bump).
 - The package:vsix script runs webpack production build, then scripts/bump-version.js to increment the patch (x.y.Z), then runs vsce package.
 - package.json is modified; commit the version bump as needed.
 
@@ -349,10 +358,8 @@ yarn compile              # or: npm run compile
 
 # bump version yourself (REQUIRED; vsce won't do it for you)
 npm version patch         # or update "version" in package.json manually
-
 # create VSIX
 vsce package
-
 # install locally
 code --install-extension devmate-ai-chat-*.vsix
 ```
