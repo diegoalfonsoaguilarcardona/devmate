@@ -2086,9 +2086,12 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
     // or the "old" content is already gone, skip to avoid duplicate insertions.
     const hasNewExact = this.findSubsequence(curLines, newSeq, false) !== -1;
     const hasNewWs = this.findSubsequence(curLines, newSeq, true) !== -1;
+    // For insert-only hunks, also check if the plus-only block is already present
+    const hasPlusExact = plusOnly.length > 0 ? this.findSubsequence(curLines, plusOnly, false) !== -1 : false;
+    const hasPlusWs = plusOnly.length > 0 ? this.findSubsequence(curLines, plusOnly, true) !== -1 : false;
     // Pure insertion: if we already see the intended insertion block, do nothing.
     if (minusOnly.length === 0 && plusOnly.length > 0) {
-      if (hasNewExact || hasNewWs) {
+      if (hasNewExact || hasNewWs || hasPlusExact || hasPlusWs) {
         return { ok: true, text: current, note: 'Insertion already present; skipping' };
       }
     }
@@ -2139,12 +2142,14 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
       if (insertPos === -1) {
         return { ok: false, note: 'Pure insertion: context not found; skip to avoid duplication' };
       }
+      // Insert only the added lines, not the surrounding context
+      const toInsert = plusOnly;
       const next = [
         ...curLines.slice(0, insertPos),
-        ...newSeq,
+        ...toInsert,
         ...curLines.slice(insertPos)
       ];
-      return { ok: true, text: next.join('\n'), via: 'insert', note: 'Pure insertion via context/append' };
+      return { ok: true, text: next.join('\n'), via: 'insert', note: 'Pure insertion of additions' };
     }
 
     // Pure deletion: only '-' lines (maybe with context)
