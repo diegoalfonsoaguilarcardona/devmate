@@ -975,6 +975,73 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
     }
     return s;
   }
+  // Build a detailed, human-readable error report including status, code, headers,
+  // response body (if available), and stack. Works with OpenAI APIError, fetch errors,
+  // and generic JS errors. Limits very long bodies safely.
+  private async describeError(err: any): Promise<string> {
+    const lines: string[] = [];
+    const name = (err && err.name) ? String(err.name) : 'Error';
+    const msg = (err && err.message) ? String(err.message) : String(err);
+    lines.push(`[${name}] ${msg}`);
+    // Common properties
+    if (err && typeof err.status !== 'undefined') lines.push(`status: ${String(err.status)}`);
+    if (err && typeof err.statusText !== 'undefined') lines.push(`statusText: ${String(err.statusText)}`);
+    if (err && typeof err.code !== 'undefined') lines.push(`code: ${String(err.code)}`);
+    // OpenAI APIError body (err.error) if present
+    if (err && err.error) {
+      try {
+        const bodyStr = JSON.stringify(err.error, null, 2);
+        lines.push(`error (body):\n${bodyStr}`);
+      } catch {
+        lines.push(`error (body): ${this.safeStringify(err.error, 4000)}`);
+      }
+    }
+    // Headers of interest
+    const hdrs = err && err.headers ? err.headers : (err && err.response && err.response.headers ? err.response.headers : undefined);
+    if (hdrs) {
+      const readHeader = (k: string) => {
+        try {
+          if (typeof hdrs.get === 'function') return hdrs.get(k);
+          const v = hdrs[k] || hdrs[k.toLowerCase()];
+          return Array.isArray(v) ? v.join(', ') : v;
+        } catch { return undefined; }
+      };
+      const maybeHeaders: Array<[string, string | undefined]> = [
+        ['x-request-id', readHeader('x-request-id')],
+        ['openai-request-id', readHeader('openai-request-id')],
+        ['cf-ray', readHeader('cf-ray')],
+        ['date', readHeader('date')],
+        ['content-type', readHeader('content-type')]
+      ];
+      const present = maybeHeaders.filter(([, v]) => !!v);
+      if (present.length) {
+        lines.push('headers:');
+        for (const [k, v] of present) lines.push(`  ${k}: ${String(v)}`);
+      }
+    }
+    // Try to read response text if available (e.g., fetch Response on errors)
+    const resp = err && err.response ? err.response : undefined;
+    if (resp && typeof resp.text === 'function') {
+      try {
+        const txt = await resp.text();
+        if (txt && txt.trim().length) {
+          lines.push('response body (text):');
+          lines.push(this.safeStringify(txt, 4000));
+        }
+      } catch { /* ignore */ }
+    }
+    // Fallback: include any data/body fields if present
+    if (err && err.data) lines.push(`data: ${this.safeStringify(err.data, 4000)}`);
+    if (err && err.body && !err.error) lines.push(`body: ${this.safeStringify(err.body, 4000)}`);
+    // Stack (trim to avoid flooding)
+    if (err && err.stack) {
+      const stack = String(err.stack).split('\n').slice(0, 20).join('\n');
+      lines.push('stack:');
+      lines.push(stack);
+    }
+    return lines.join('\n');
+  }
+
 
   // Get nested value from an object using a dot/bracket path, e.g. "choices[0].delta.reasoning"
   private getValueAtPath(obj: any, path: string | undefined): any {
@@ -1696,7 +1763,13 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
             body: JSON.stringify(payload)
           });
           if (!res.ok || !res.body) {
-            throw new Error(`Gemini request failed (${res.status || 0})`);
+            let errText = '';
+            try {
+              errText = await res.text();
+            } catch {
+              // ignore
+            }
+            throw new Error(`Gemini request failed (${res.status || 0}): ${errText}`);
           }
           this._view?.webview.postMessage({ type: 'streamStart' });
           // Stream-time progress helpers for reasoning-style updates
@@ -1899,10 +1972,23 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
       }
     } catch (e: any) {
       console.error(e);
-      if (this._response != undefined) {
-        this._messages?.push({ role: "assistant", content: full_message, selected: true })
-        chat_response = this._response;
-        chat_response += `\n\n---\n[ERROR] ${e}`;
+      try {
+        const details = await this.describeError(e);
+        // Preserve any partial assistant output if we captured it
+        if (full_message && full_message.trim().length) {
+          this._messages?.push({ role: "assistant", content: full_message, selected: true });
+        }
+        // Add a rich error report for debugging/diagnostics
+        this._messages?.push({
+          role: "assistant",
+          content: `Request failed. Full error details:\n\`\`\`text\n${details}\n\`\`\``,
+          selected: true
+        });
+        chat_response = this._updateChatMessages(promtNumberOfTokens, 0);
+      } catch (_fmtErr) {
+        const fallback = (e && e.message) ? String(e.message) : String(e);
+        this._messages?.push({ role: "assistant", content: `Request failed: ${fallback}`, selected: true });
+        chat_response = this._updateChatMessages(promtNumberOfTokens, 0);
       }
     }
     this._response = chat_response;
