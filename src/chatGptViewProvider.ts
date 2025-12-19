@@ -1686,7 +1686,6 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
           const base = (this._settings.apiUrl || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/+$/, '');
           const modelId = this._settings.model || 'gemini-2.5-flash';
           const url = `${base}/models/${encodeURIComponent(modelId)}:streamGenerateContent?alt=sse`;
-
           const fetchImpl: any = (globalThis as any).fetch || (await import('node-fetch')).default;
           const res = await fetchImpl(url, {
             method: 'POST',
@@ -1700,6 +1699,9 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
             throw new Error(`Gemini request failed (${res.status || 0})`);
           }
           this._view?.webview.postMessage({ type: 'streamStart' });
+          // Stream-time progress helpers for reasoning-style updates
+          const postReason = (s: string) =>
+            this._view?.webview.postMessage({ type: 'appendReasoningDelta', value: s.endsWith('\n') ? s : s + '\n' });
           const reader = (res as any).body.getReader();
           const decoder = new TextDecoder('utf-8');
           let buf = '';
@@ -1707,6 +1709,9 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
           let lastSend = 0;
           let deltaAccumulator = '';
           let finalGrounding: any = null;
+          // Deduplicate streamed queries/sources so we only print each once
+          const seenQueries = new Set<string>();
+          const seenSources = new Set<string>();
           const flushDelta = (force = false) => {
             if (!deltaAccumulator) return;
             const now = Date.now();
@@ -1716,6 +1721,10 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
               lastSend = now;
             }
           };
+          // If grounding is enabled, give the user an immediate heads-up
+          if (tools.length) {
+            postReason('🔎 Google Search grounding enabled; model may issue queries…');
+          }
           try {
             while (true) {
               const { done, value } = await reader.read();
@@ -1743,9 +1752,32 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
                   deltaAccumulator += delta;
                   flushDelta(false);
                 }
-                // Capture grounding metadata if present
+                // Capture/stream grounding progress if present in this chunk
                 if (cand?.groundingMetadata) {
-                  finalGrounding = cand.groundingMetadata;
+                  const gm = cand.groundingMetadata;
+                  // Stream any newly observed search queries
+                  if (Array.isArray(gm.webSearchQueries)) {
+                    for (const q of gm.webSearchQueries) {
+                      if (typeof q === 'string' && !seenQueries.has(q)) {
+                        seenQueries.add(q);
+                        postReason(`🔎 web search: ${q}`);
+                      }
+                    }
+                  }
+                  // Stream any newly observed sources
+                  if (Array.isArray(gm.groundingChunks)) {
+                    for (const ch of gm.groundingChunks) {
+                      const uri = ch?.web?.uri || ch?.uri || '';
+                      const title = ch?.web?.title || ch?.title || '';
+                      const key = uri || title;
+                      if (key && !seenSources.has(key)) {
+                        seenSources.add(key);
+                        postReason(`🔗 source: ${title ? title + ' — ' : ''}${uri}`);
+                      }
+                    }
+                  }
+                  // Keep the latest grounding for the final collapsed summary
+                  finalGrounding = gm;
                 }
               }
             }
