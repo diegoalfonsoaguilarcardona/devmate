@@ -7,6 +7,7 @@ import OpenAI from "openai";
 import { encodingForModel } from "js-tiktoken";
 import { AuthInfo, Settings, Message, Provider, Prompt, UserMessage, SystemMessage, AssistantMessage, BASE_URL } from './types';
 import { ChatCompletionContentPart, ChatCompletionContentPartImage, ChatCompletionContentPartText } from 'openai/resources/chat/completions';
+import { TextDecoder } from 'util';
 
 export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'devmate.chatView';
@@ -1603,7 +1604,183 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
         } else {
           throw new Error('Responses API stream() not available in this SDK/version.');
         }
-      } else {
+        } else {
+        // Branch here for Gemini; otherwise fall back to Chat Completions
+        if (this._settings.apiType === 'gemini') {
+          // Native Gemini API via REST SSE (streamGenerateContent)
+          // Docs: google_search tool and REST streaming endpoints.
+          // Sources: Grounding with Google Search guide and API reference. ([ai.google.dev](https://ai.google.dev/gemini-api/docs/google-search))
+          const mapOptionsToGenerationConfig = (opts: any) => {
+            if (!opts) return undefined;
+            const gc: any = {};
+            if (typeof opts.temperature === 'number') gc.temperature = opts.temperature;
+            if (typeof opts.top_p === 'number') gc.topP = opts.top_p;
+            if (typeof opts.topP === 'number') gc.topP = opts.topP;
+            if (typeof opts.top_k === 'number') gc.topK = opts.top_k;
+            if (typeof opts.topK === 'number') gc.topK = opts.topK;
+            if (typeof opts.max_tokens === 'number') gc.maxOutputTokens = opts.max_tokens;
+            if (typeof opts.maxOutputTokens === 'number') gc.maxOutputTokens = opts.maxOutputTokens;
+            if (Array.isArray(opts.stop) && opts.stop.length) gc.stopSequences = opts.stop;
+            if (Array.isArray(opts.stopSequences) && opts.stopSequences.length) gc.stopSequences = opts.stopSequences;
+            return Object.keys(gc).length ? gc : undefined;
+          };
+          const toGeminiParts = (c: any): any[] => {
+            const parts: any[] = [];
+            if (typeof c === 'string') {
+              if (c.trim()) parts.push({ text: c });
+            } else if (Array.isArray(c)) {
+              for (const p of c) {
+                if (this.isChatCompletionContentPartText(p)) {
+                  if (p.text && p.text.trim()) parts.push({ text: p.text });
+                } else if (this.isChatCompletionContentPartImage(p)) {
+                  const url: string = p.image_url.url;
+                  // Expect data URL (we generate those for pasted files)
+                  const m = /^data:(.+);base64,(.*)$/i.exec(url || '');
+                  if (m && m[1] && m[2]) {
+                    parts.push({ inline_data: { mime_type: m[1], data: m[2] } });
+                  } else if (url) {
+                    // Fallback: send URL as text reference
+                    parts.push({ text: `Image: ${url}` });
+                  }
+                }
+              }
+            }
+            return parts;
+          };
+          // Split selected messages into system instruction and conversational contents
+          let systemText = '';
+          const contents: any[] = [];
+          for (const m of messagesToSend) {
+            if ((m as any).role === 'system') {
+              const t = typeof (m as any).content === 'string'
+                ? String((m as any).content)
+                : '';
+              if (t.trim()) {
+                systemText = systemText ? `${systemText}\n\n${t}` : t;
+              }
+              continue;
+            }
+            const role = (m as any).role === 'assistant' ? 'model' : 'user';
+            const parts = toGeminiParts((m as any).content);
+            if (parts.length) contents.push({ role, parts });
+          }
+          // Tools mapping: accept either "google_search" or generic "web_search" from settings
+          const toolsIn = (this._settings.options && (this._settings.options as any).tools) || [];
+          const tools: any[] = [];
+          if (Array.isArray(toolsIn)) {
+            if (toolsIn.some((t: any) => (t?.type || '').toLowerCase() === 'google_search'
+              || (t?.type || '').toLowerCase() === 'web_search')) {
+              tools.push({ google_search: {} });
+            }
+          }
+          const generationConfig = mapOptionsToGenerationConfig(this._settings.options || {});
+          const payload: any = {
+            contents,
+          };
+          if (systemText) {
+            payload.system_instruction = { parts: [{ text: systemText }] };
+          }
+          if (tools.length) payload.tools = tools;
+          if (generationConfig) payload.generationConfig = generationConfig;
+
+          const base = (this._settings.apiUrl || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/+$/, '');
+          const modelId = this._settings.model || 'gemini-2.5-flash';
+          const url = `${base}/models/${encodeURIComponent(modelId)}:streamGenerateContent?alt=sse`;
+
+          const fetchImpl: any = (globalThis as any).fetch || (await import('node-fetch')).default;
+          const res = await fetchImpl(url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-goog-api-key': String(this._authInfo?.apiKey || '')
+            },
+            body: JSON.stringify(payload)
+          });
+          if (!res.ok || !res.body) {
+            throw new Error(`Gemini request failed (${res.status || 0})`);
+          }
+          this._view?.webview.postMessage({ type: 'streamStart' });
+          const reader = (res as any).body.getReader();
+          const decoder = new TextDecoder('utf-8');
+          let buf = '';
+          let full_message_g = '';
+          let lastSend = 0;
+          let deltaAccumulator = '';
+          let finalGrounding: any = null;
+          const flushDelta = (force = false) => {
+            if (!deltaAccumulator) return;
+            const now = Date.now();
+            if (force || now - lastSend > 50) {
+              this._view?.webview.postMessage({ type: 'appendDelta', value: deltaAccumulator });
+              deltaAccumulator = '';
+              lastSend = now;
+            }
+          };
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buf += decoder.decode(value, { stream: true });
+              const lines = buf.split('\n');
+              buf = lines.pop() || '';
+              for (const raw of lines) {
+                const line = raw.trim();
+                if (!line) continue;
+                if (!line.startsWith('data:')) continue;
+                const json = line.slice(5).trim();
+                if (!json || json === '[DONE]') continue;
+                let obj: any;
+                try { obj = JSON.parse(json); } catch { continue; }
+                // Extract delta text
+                const cand = obj?.candidates?.[0];
+                const parts = cand?.content?.parts || [];
+                let delta = '';
+                for (const p of parts) {
+                  if (typeof p?.text === 'string') delta += p.text;
+                }
+                if (delta) {
+                  full_message_g += delta;
+                  deltaAccumulator += delta;
+                  flushDelta(false);
+                }
+                // Capture grounding metadata if present
+                if (cand?.groundingMetadata) {
+                  finalGrounding = cand.groundingMetadata;
+                }
+              }
+            }
+          } finally {
+            flushDelta(true);
+            this._view?.webview.postMessage({ type: 'streamEnd' });
+          }
+          // Attach grounding summary (queries + sources) as collapsed assistant message
+          if (finalGrounding) {
+            const queries: string[] = Array.isArray(finalGrounding.webSearchQueries) ? finalGrounding.webSearchQueries : [];
+            const chunks: any[] = Array.isArray(finalGrounding.groundingChunks) ? finalGrounding.groundingChunks : [];
+            const lines: string[] = [];
+            if (queries.length) {
+              lines.push('Web searches executed:');
+              for (const q of queries) lines.push(`- ${q}`);
+            }
+            if (chunks.length) {
+              lines.push('', 'Sources:');
+              for (let i = 0; i < chunks.length; i++) {
+                const uri = chunks[i]?.web?.uri || chunks[i]?.uri || '';
+                const title = chunks[i]?.web?.title || chunks[i]?.title || '';
+                if (uri || title) lines.push(`- ${title ? title + ' — ' : ''}${uri}`);
+              }
+            }
+            if (lines.length) {
+              this._messages?.push({ role: "assistant", content: lines.join('\n'), selected: false, collapsed: true });
+              const chat_progress = this._updateChatMessages(0, 0);
+              this._view?.webview.postMessage({ type: 'addResponse', value: chat_progress });
+            }
+          }
+          // Final assistant message
+          this._messages?.push({ role: "assistant", content: full_message_g, selected: true });
+          const tokenList = this._enc.encode(full_message_g);
+          chat_response = this._updateChatMessages(promtNumberOfTokens, tokenList.length);
+        } else {
         // Default Chat Completions flow
         const stream = await this._openai.chat.completions.create({
           model: this._settings.model,
@@ -1665,7 +1842,6 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
             deltaAccumulator += content;
             flushDelta(false);
           }
-
         } finally {
           // Ensure last delta is flushed and end the stream even on errors
           flushDelta(true);
@@ -1681,13 +1857,13 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
             collapsed: true
           });
         }
-
         this._messages?.push({ role: "assistant", content: full_message, selected: true })
         console.log("Full message:", full_message);
         console.log("Full Number of tokens:", completionTokens);
         const tokenList = this._enc.encode(full_message);
         console.log("Full Number of tokens tiktoken:", tokenList.length);
-        chat_response = this._updateChatMessages(promtNumberOfTokens, tokenList.length)
+          chat_response = this._updateChatMessages(promtNumberOfTokens, tokenList.length)
+        }
       }
     } catch (e: any) {
       console.error(e);

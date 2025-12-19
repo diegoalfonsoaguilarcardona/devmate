@@ -87,7 +87,7 @@
                     "model_name": "gpt-5",
                     "options": {
                         "temperature": 1.0,
-                        "reasoning_effort": "minimal",
+                        "reasoning_effort": "minimal"
                     }
                 },
                 {
@@ -202,25 +202,46 @@
         {
             "name": "Gemini",
             "apiKey": "sk-",
-            "apiUrl": "https://generativelanguage.googleapis.com/v1beta/openai/",
+            "apiUrl": "https://generativelanguage.googleapis.com/v1beta",
             "models": [
                 {
                     "name": "gemini-3-pro-preview",
                     "model_name": "gemini-3-pro-preview",
+                    "api": "gemini",
                     "options": {
                     }
                 },
                 {
                     "name": "gemini-2.5-pro",
                     "model_name": "gemini-2.5-pro",
+                    "api": "gemini",
                     "options": {
                     }
                 },
                 {
+                    "name": "gemini-2.5-pro with Google Search",
+                    "model_name": "gemini-2.5-pro",
+                    "api": "gemini",
+                    "tools": [
+                        { "type": "google_search" }
+                    ],
+                    "options": { }
+                },
+                {
                     "name": "gemini-2.5-flash",
                     "model_name": "gemini-2.5-flash",
+                    "api": "gemini",
                     "options": {
                     }
+                },
+                {
+                    "name": "gemini-2.5-flash with Google Search",
+                    "model_name": "gemini-2.5-flash",
+                    "api": "gemini",
+                    "tools": [
+                        { "type": "google_search" }
+                    ],
+                    "options": { }
                 }
             ]
         },
@@ -236,7 +257,7 @@
                         "reasoning": {
                             "effort": "high",
                             "exclude": false
-                            },
+                            }
                     },
                     "reasoning_output_delta_path": "choices[0].delta.reasoning"
                 },
@@ -247,7 +268,7 @@
                         "reasoning": {
                             "effort": "medium",
                             "exclude": false
-                            },
+                            }
                     },
                     "reasoning_output_delta_path": "choices[0].delta.reasoning"
                 },
@@ -258,7 +279,7 @@
                         "reasoning": {
                             "effort": "low",
                             "exclude": false
-                            },
+                            }
                     },
                     "reasoning_output_delta_path": "choices[0].delta.reasoning"
                 },                
@@ -516,5 +537,5 @@
             "name": "Chain of Draft",
             "prompt": "Think step by step (but only keep a minimum draft for each thinking step, with 5 words at most) to answer the following question. Start the think process with <think> label. After thinking close the label with </think> and then Return the answer. Remember to diferenciate the codes with Triple backticks."
         }
-    ],
+    ]
 }

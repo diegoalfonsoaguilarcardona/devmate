@@ -186,21 +186,25 @@ export function activate(context: vscode.ExtensionContext) {
 
 	if (providers && providers.length > 0) {
 		const firstProvider = providers[0];
-		if (firstProvider.models && firstProvider.models.length > 0) {
-			const firstModel = firstProvider.models[0];
+        if (firstProvider.models && firstProvider.models.length > 0) {
+            const firstModel = firstProvider.models[0];
             // Determine API type and URL based on model/provider configuration
             const apiType = firstModel.api || 'chatCompletions';
-            const apiUrl =
-                apiType === 'responses'
-                    ? (firstProvider.responsesUrl || firstProvider.apiUrl || BASE_URL)
-                    : (firstProvider.chatCompletionsUrl || firstProvider.apiUrl || BASE_URL);
-
-			activate_provider_settings = {
-			  model: firstModel.model_name,
+            let apiUrl: string;
+            if (apiType === 'responses') {
+                apiUrl = firstProvider.responsesUrl || firstProvider.apiUrl || BASE_URL;
+            } else if (apiType === 'gemini') {
+                // Default to native Gemini API if not provided
+                apiUrl = firstProvider.apiUrl || 'https://generativelanguage.googleapis.com/v1beta';
+            } else {
+                apiUrl = firstProvider.chatCompletionsUrl || firstProvider.apiUrl || BASE_URL;
+            }
+            activate_provider_settings = {
+              model: firstModel.model_name,
               apiUrl,
-			  apiKey: firstProvider.apiKey,
-			  apiType,
-			  options: {
+              apiKey: firstProvider.apiKey,
+              apiType,
+              options: {
 				...firstModel.options, // Spread operator to include all keys from options
                 // If tools are defined at model level, include them in options for convenience
                 ...(firstModel.tools ? { tools: firstModel.tools } : {}),
@@ -346,19 +350,23 @@ export function activate(context: vscode.ExtensionContext) {
 
 			if (providers && providers.length > 0) {
 				const firstProvider = providers[0];
-				if (firstProvider.models && firstProvider.models.length > 0) {
-					const firstModel = firstProvider.models[0];
+                if (firstProvider.models && firstProvider.models.length > 0) {
+                    const firstModel = firstProvider.models[0];
                     const apiType = firstModel.api || 'chatCompletions';
-                    const apiUrl =
-                        apiType === 'responses'
-                            ? (firstProvider.responsesUrl || firstProvider.apiUrl || BASE_URL)
-                            : (firstProvider.chatCompletionsUrl || firstProvider.apiUrl || BASE_URL);
+                    let apiUrl: string;
+                    if (apiType === 'responses') {
+                        apiUrl = firstProvider.responsesUrl || firstProvider.apiUrl || BASE_URL;
+                    } else if (apiType === 'gemini') {
+                        apiUrl = firstProvider.apiUrl || 'https://generativelanguage.googleapis.com/v1beta';
+                    } else {
+                        apiUrl = firstProvider.chatCompletionsUrl || firstProvider.apiUrl || BASE_URL;
+                    }
                     activate_provider_settings = {
-					  model: firstModel.model_name,
-					  apiUrl,
-					  apiKey: firstProvider.apiKey,
-					  apiType,
-					  options: {
+                      model: firstModel.model_name,
+                      apiUrl,
+                      apiKey: firstProvider.apiKey,
+                      apiType,
+                      options: {
 						...firstModel.options, // Use spread operator to include all options
                         ...(firstModel.tools ? { tools: firstModel.tools } : {}),
                         ...(firstModel as any).reasoning_output_delta_path ? { reasoning_output_delta_path: (firstModel as any).reasoning_output_delta_path } : {},
