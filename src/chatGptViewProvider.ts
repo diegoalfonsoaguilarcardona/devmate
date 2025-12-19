@@ -2864,11 +2864,11 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
     const content =
       `File reference: \`${relativePath}\`\n` +
       `<!--FILE:${relativePath}-->`;
-
     let newMessage: UserMessage = {
       role: "user",
       content,
-      selected: true
+      selected: true,
+      moveToEnd: true
     };
     this._messages?.push(newMessage);
     const idx = this._messages ? this._messages.length - 1 : 0;

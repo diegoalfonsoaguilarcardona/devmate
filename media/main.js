@@ -692,13 +692,12 @@
                 moveWrap.style.alignItems = 'center';
                 moveWrap.style.gap = '.25rem';
                 moveWrap.style.marginLeft = '.25rem';
-                
                 const moveCb = document.createElement('input');
                 moveCb.type = 'checkbox';
                 moveCb.className = 'move-ref-toggle';
                 moveCb.title = 'Move this file reference to the end before each send';
                 const prev = moveRefState.get(msgKey);
-                if (prev) moveCb.checked = true;
+                moveCb.checked = prev !== false;
                 moveCb.addEventListener('change', function () {
                     moveRefState.set(msgKey, !!this.checked);
                     vscode.postMessage({ type: 'toggleMoveRefToEnd', index: parseInt(msgKey, 10), checked: !!this.checked });
