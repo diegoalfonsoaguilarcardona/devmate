@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import { promises as fsp } from 'fs';
 import { Provider, Prompt, ProviderSettings } from './types';
 import { ChatGPTViewProvider } from './chatGptViewProvider';
+import * as yaml from 'js-yaml';
 import { TextDecoder } from 'util';
 
 // Base URL for OpenAI API
@@ -338,8 +339,54 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('devmate.pasteChat', () => provider.pasteChat()),
         vscode.commands.registerCommand('devmate.useSelectionAsChat', () => provider.useSelectionAsChat()),
         vscode.commands.registerCommand('devmate.appendSelectionMarkdownAsChat', () => provider.appendSelectionMarkdownAsChat()),
-        vscode.commands.registerCommand('devmate.appendSelectionAsChat', () => provider.appendSelectionAsChat())
-	);
+        vscode.commands.registerCommand('devmate.appendSelectionAsChat', () => provider.appendSelectionAsChat()),
+        vscode.commands.registerCommand('devmate.appendSelectionReferencesAsChat', async () => {
+          const activeEditor = vscode.window.activeTextEditor;
+          if (!activeEditor) { vscode.window.showErrorMessage('No active text editor with a selection!'); return; }
+          const selection = activeEditor.selection;
+          if (selection.isEmpty) { vscode.window.showErrorMessage('No text selected!'); return; }
+          const selectedText = activeEditor.document.getText(selection);
+          try {
+            const parsed: any = yaml.load(selectedText);
+            if (!Array.isArray(parsed)) throw new Error('Selected text is not an array of messages.');
+            const refs: string[] = [];
+            const seen = new Set<string>();
+            for (const msg of parsed) {
+              const c: any = (msg as any)?.content;
+              if (typeof c === 'string') {
+                const re1 = /<!--\s*FILE:([^>]+?)\s*-->/g;
+                const re2 = /File reference:\s*`([^`]+)`/g;
+                let m: RegExpExecArray | null;
+                while ((m = re1.exec(c)) !== null) { const p = String((m[1] || '').trim()); if (p && !seen.has(p)) { seen.add(p); refs.push(p); } }
+                while ((m = re2.exec(c)) !== null) { const p = String((m[1] || '').trim()); if (p && !seen.has(p)) { seen.add(p); refs.push(p); } }
+              } else if (Array.isArray(c)) {
+                for (const part of c) {
+                  const t = (part && typeof part.text === 'string') ? part.text : '';
+                  if (!t) continue;
+                  const re1 = /<!--\s*FILE:([^>]+?)\s*-->/g;
+                  const re2 = /File reference:\s*`([^`]+)`/g;
+                  let m: RegExpExecArray | null;
+                  while ((m = re1.exec(t)) !== null) { const p = String((m[1] || '').trim()); if (p && !seen.has(p)) { seen.add(p); refs.push(p); } }
+                  while ((m = re2.exec(t)) !== null) { const p = String((m[1] || '').trim()); if (p && !seen.has(p)) { seen.add(p); refs.push(p); } }
+                }
+              }
+            }
+            if (!refs.length) {
+              vscode.window.showInformationMessage('No file references found in selected YAML.');
+              return;
+            }
+            let added = 0;
+            for (const rel of refs) {
+              const ext = path.extname(rel).substring(1);
+              provider.addFileReferenceToChat(rel, ext);
+              added++;
+            }
+            vscode.window.setStatusBarMessage(`[DevMate AI Chat] Added ${added} file reference(s) from selection.`, 4000);
+          } catch (err: any) {
+            vscode.window.showErrorMessage('Failed to append file references from selection: ' + (err?.message || String(err)));
+          }
+        })
+    );
 
 
 	// Change the extension's session token or settings when configuration is changed

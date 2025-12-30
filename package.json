@@ -2,7 +2,7 @@
   "name": "devmate-ai-chat",
   "displayName": "DevMate AI Chat",
   "description": "Use multiple llm providers and specific models right inside the IDE to enhance and automate your coding with AI-powered assistance",
-  "version": "1.1.7",
+  "version": "1.1.8",
   "publisher": "diegoalfonsoaguilarcardona",
   "icon": "resources/extensionIcon.png",
   "license": "MIT",
@@ -38,7 +38,8 @@
     "onCommand:devmate.useSelectionAsChat",
     "onCommand:devmate.appendSelectionAsChat",
     "onCommand:devmate.addFileReferenceToChat",
-    "onCommand:devmate.appendSelectionMarkdownAsChat"
+    "onCommand:devmate.appendSelectionMarkdownAsChat",
+    "onCommand:devmate.appendSelectionReferencesAsChat"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -86,6 +87,10 @@
       {
         "command": "devmate.appendSelectionMarkdownAsChat",
         "title": "Append Markdown selection to DevMate AI Chat conversation"
+      },
+      {
+        "command": "devmate.appendSelectionReferencesAsChat",
+        "title": "DevMate AI Chat: Append referenced files from YAML selection"
       },
       {
         "command": "devmate.tryAgain",
@@ -156,6 +161,11 @@
           "group": "devmate-menu-group@8"
         },
         {
+          "command": "devmate.appendSelectionReferencesAsChat",
+          "when": "editorHasSelection",
+          "group": "devmate-menu-group@9"
+        },
+        {
           "command": "devmate.addSelectedPathsAsReferences",
           "when": "editorHasSelection",
           "group": "devmate-menu-group@9"
@@ -201,6 +211,10 @@
         },
         {
           "command": "devmate.appendSelectionMarkdownAsChat",
+          "when": "editorHasSelection"
+        },
+        {
+          "command": "devmate.appendSelectionReferencesAsChat",
           "when": "editorHasSelection"
         },
         {

@@ -1632,6 +1632,7 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
             this._view?.webview.postMessage({ type: 'addResponse', value: chat_progress });
           }
 
+
           // Add any captured message output items with full annotations (not selected)
           for (const mi of messageOutputItems) {
             const contentJson = JSON.stringify(mi, null, 2);
@@ -1773,8 +1774,12 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
           }
           this._view?.webview.postMessage({ type: 'streamStart' });
           // Stream-time progress helpers for reasoning-style updates
-          const postReason = (s: string) =>
-            this._view?.webview.postMessage({ type: 'appendReasoningDelta', value: s.endsWith('\n') ? s : s + '\n' });
+          let reasoningStream = '';
+          const postReason = (s: string) => {
+            const line = s.endsWith('\n') ? s : s + '\n';
+            this._view?.webview.postMessage({ type: 'appendReasoningDelta', value: line });
+            reasoningStream += line;
+          };
           const reader = (res as any).body.getReader();
           const decoder = new TextDecoder('utf-8');
           let buf = '';
