@@ -2294,9 +2294,15 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
         pendingOld = null;
         continue;
       }
-      if (l.startsWith('@@ ')) {
+      // Treat any line that begins with "@@" as a hunk header, even if it
+      // omits or misformats the -old,+new line/length metadata. This allows
+      // "loose" diffs from LLMs (e.g., just "@@") to be recognized as hunks.
+      if (l.startsWith('@@')) {
         if (!curFile) continue;
-        curHunk = { header: l, lines: [] };
+        curHunk = {
+          header: l,    // may be malformed; we will fall back to fuzzy matching
+          lines: []
+        };
         curFile.hunks.push(curHunk);
         continue;
       }
@@ -2457,6 +2463,10 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
     if (typeof header !== 'string') return null;
     // Normalize any CRLF
     const h = header.replace(/\r\n/g, '\n');
+    // Standard unified diff: @@ -<oldStart>[,<oldLen>] +<newStart>[,<newLen>] @@
+    // Many LLMs emit "@@" with no numbers or with bogus numbers; in that case,
+    // we return null so callers know they must *not* trust the header and
+    // should fall back to header-less fuzzy matching instead of rejecting.
     const m = h.match(/@@\s*-(\d+)(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s*@@/);
     if (m && m[1]) {
       const n = parseInt(m[1], 10);
@@ -2804,14 +2814,28 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
       let anyHunkApplied = false;
       let localAppliedVia: Array<'exact' | 'whitespace' | 'indent' | 'anchor' | 'ordered' | 'insert' | 'delete' | 'fuzzy'> = [];
       for (const h of file.hunks) {
-        // Prefer hinted localized application using hunk header oldStart line number.
+        // Prefer hinted localized application using hunk header oldStart line
+        // number when the header is well‑formed. If the header is missing or
+        // malformed (very common with LLM‑generated diffs that just emit "@@"
+        // or bogus numbers), we *skip* using any hint and rely entirely on
+        // our fuzzy/context matching instead of rejecting the hunk.
+        let res:
+          { ok: boolean; text?: string; via?: any; note?: string } = { ok: false, note: 'uninitialized' };
         let approxLine: number | null = null;
         try {
           approxLine = this.parseOldStartFromHunkHeader(h.header);
-        } catch { /* ignore */ }
-        const res = this.applyHunkToTextWithHint(cur, h.lines, {
-          approxIndex: (approxLine != null ? Math.max(0, approxLine - 1) : undefined)
-        });
+        } catch {
+          approxLine = null;
+        }
+        if (approxLine != null) {
+          res = this.applyHunkToTextWithHint(cur, h.lines, {
+            approxIndex: Math.max(0, approxLine - 1)
+          });
+        } else {
+          // Header is unusable; fall back to global fuzzy application that
+          // ignores header line/length data entirely.
+          res = this.applyHunkToTextWithHint(cur, h.lines, { approxIndex: undefined });
+        }
         if (!res.ok || !res.text) {
           rejections.push({
             path: targetPath,
