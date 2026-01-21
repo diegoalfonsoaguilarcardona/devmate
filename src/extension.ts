@@ -338,6 +338,7 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('devmate.resetConversation', () => provider.resetConversation()),
         vscode.commands.registerCommand('devmate.pasteChat', () => provider.pasteChat()),
         vscode.commands.registerCommand('devmate.useSelectionAsChat', () => provider.useSelectionAsChat()),
+        vscode.commands.registerCommand('devmate.pasteLastResponses', () => provider.pasteLastResponses()),
         vscode.commands.registerCommand('devmate.appendSelectionMarkdownAsChat', () => provider.appendSelectionMarkdownAsChat()),
         vscode.commands.registerCommand('devmate.appendSelectionAsChat', () => provider.appendSelectionAsChat()),
         vscode.commands.registerCommand('devmate.appendSelectionReferencesAsChat', async () => {

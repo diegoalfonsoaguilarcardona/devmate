@@ -23,6 +23,7 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
   private _fullPrompt?: string;
   private _currentMessageNumber = 0;
   private _enc = encodingForModel("gpt-4"); //Hardcoded for now
+  private _lastResponsesByModel: Map<string, Record<string, string>> = new Map();
 
   private _settings: Settings = {
     selectedInsideCodeblock: false,
@@ -1041,6 +1042,21 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
     }
     return lines.join('\n');
   }
+  // Build a stable key for "current model" (provider+model) using base URL and model id
+  private currentModelKey(): string {
+    const api = (this._authInfo?.apiUrl || this._settings.apiUrl || '').trim();
+    const model = (this._settings.model || '').trim();
+    return `${api}::${model}`;
+  }
+
+  // Resolve a friendly label for a response type using per-model options.responseTypeLabels
+  private labelForResponseType(type: string): string {
+    const opt: any = this._settings?.options || {};
+    const labels = opt.responseTypeLabels || {};
+    const v = labels[type];
+    return (typeof v === 'string' && v) ? v : type;
+  }
+
 
 
   // Get nested value from an object using a dot/bracket path, e.g. "choices[0].delta.reasoning"
@@ -1189,6 +1205,10 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
     let chat_response = '';
     let searchPrompt = "";
     let movedInState = false;
+    // Local collector of streamed responses by type for this run/model
+    const buckets: Record<string, string> = {};
+    const put = (t: string, s: string) => { if (!s) return; buckets[t] = (buckets[t] || '') + s; };
+
     if (prompt != undefined) {
       searchPrompt = await this._generate_search_prompt(prompt);
     }
@@ -1458,6 +1478,7 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
               if (t === 'response.output_text.delta') {
                 const content = (event as any).delta || "";
                 if (!content) continue;
+                put('output_text', String(content));
                 const tokenList = this._enc.encode(content);
                 completionTokens += tokenList.length;
                 full_message += content;
@@ -1469,6 +1490,7 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
               // Reasoning summary text stream (new event names)
               if (t === 'response.reasoning_summary_text.delta') {
                 const d = (event as any)?.delta ?? '';
+                if (d) put('reasoning_summary', String(d));
                 if (d) {
                   reasoningDelta += String(d);
                   // Stream reasoning brief text to UI as it arrives (like stdout.write in example)
@@ -1482,6 +1504,9 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
               }
               // Web search tool progress (new event names) – concise messages only
               if (t === 'response.web_search_call.in_progress') {
+              put('web_search', 'in_progress\n');
+              put('web_search', 'searching\n');
+              put('web_search', 'completed\n');
                 postProgress('🔎 web search: in progress');
                 continue;
               }
@@ -1560,6 +1585,7 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
                     (event as any)?.delta ??
                     (event as any)?.output_delta ??
                     '';
+                    if (delta) put('tool_output', String(delta));
                   if (rec) {
                     rec.output = (rec.output || '') + String(delta);
                     rec.hasServerOutput = true;
@@ -1577,6 +1603,7 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
                   rec.hasServerOutput = true;
                 }
                 const outStr = this.safeStringify(out ?? '', 2000);
+                put('tool_output', outStr + '\n');
                 postProgress(`📥 tool.output (${name}): ${outStr}`);
                 // Add to chat history as an assistant message (selectable for later context)
                 this._messages?.push({
@@ -1598,6 +1625,7 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
                   const q = item?.action?.query || '';
                   postProgress(`🔎 web search executed: ${q}`);
                   // Collect queries to aggregate later into a single message (not selected)
+                  if (q) put('web_search', `query: ${q}\n`);
                   if (q) webSearchQueries.push(q);
                 } else if (item?.type === 'message') {
                   // Capture message output items (with annotations) to add after stream, not selected
@@ -1652,6 +1680,7 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
                 .map((p: any) => p?.text || '')
                 .filter(Boolean)
                 .join('\n') || '';
+                if (summaryText) put('reasoning_summary_final', summaryText + '\n');
             if (summaryText || reasoningDelta) {
               const thinkText = summaryText || reasoningDelta;
               this._messages?.push({
@@ -1668,6 +1697,7 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
           // Add the final assistant answer as a message
           this._messages?.push({ role: "assistant", content: full_message, selected: true });
           const tokenList = this._enc.encode(full_message);
+          if (full_message) put('output_text', full_message);
           chat_response = this._updateChatMessages(promtNumberOfTokens, tokenList.length);
         } else {
           throw new Error('Responses API stream() not available in this SDK/version.');
@@ -1778,6 +1808,7 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
           const postReason = (s: string) => {
             const line = s.endsWith('\n') ? s : s + '\n';
             this._view?.webview.postMessage({ type: 'appendReasoningDelta', value: line });
+            put('reasoning_stream', line);
             reasoningStream += line;
           };
           const reader = (res as any).body.getReader();
@@ -1827,6 +1858,7 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
                 }
                 if (delta) {
                   full_message_g += delta;
+                  put('assistant_text', delta);
                   deltaAccumulator += delta;
                   flushDelta(false);
                 }
@@ -1881,6 +1913,7 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
               }
             }
             if (lines.length) {
+            put('grounding_summary', lines.join('\n') + '\n');
               this._messages?.push({ role: "assistant", content: lines.join('\n'), selected: false, collapsed: true });
               const chat_progress = this._updateChatMessages(0, 0);
               this._view?.webview.postMessage({ type: 'addResponse', value: chat_progress });
@@ -1889,6 +1922,7 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
           // Final assistant message
           this._messages?.push({ role: "assistant", content: full_message_g, selected: true });
           const tokenList = this._enc.encode(full_message_g);
+          if (full_message_g) put('assistant_text', full_message_g);
           chat_response = this._updateChatMessages(promtNumberOfTokens, tokenList.length);
         } else {
         // Default Chat Completions flow
@@ -1932,6 +1966,8 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
                 const rv = this.getValueAtPath(chunk, this._settings.reasoningOutputDeltaPath);
                 if (rv !== undefined && rv !== null) {
                   const piece = (typeof rv === 'string') ? rv : this.safeStringify(rv, 1000);
+                        put('reasoning_delta', piece);
+                  put('assistant_text', content);
                   reasoningDeltaCC += piece;
                   // Stream reasoning delta to the UI with special styling
                   this._view?.webview.postMessage({
@@ -1969,6 +2005,9 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
         }
         this._messages?.push({ role: "assistant", content: full_message, selected: true })
         console.log("Full message:", full_message);
+          if (full_message) put('assistant_text', full_message);
+        // Store latest buckets for this provider+model
+        this._lastResponsesByModel.set(this.currentModelKey(), buckets);
         console.log("Full Number of tokens:", completionTokens);
         const tokenList = this._enc.encode(full_message);
         console.log("Full Number of tokens tiktoken:", tokenList.length);
@@ -2077,6 +2116,44 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
 
     const chat_response = this._updateChatMessages(this._getMessagesNumberOfTokens(), 0);
     this._view?.webview.postMessage({ type: 'addResponse', value: chat_response });
+  }
+
+  // Show a Quick Pick of the last captured response types for the current model/provider
+  public async pasteLastResponses(): Promise<void> {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      vscode.window.showErrorMessage('No active text editor!');
+      return;
+    }
+    const key = this.currentModelKey();
+    const buckets = this._lastResponsesByModel.get(key);
+    if (!buckets || !Object.keys(buckets).length) {
+      vscode.window.showInformationMessage('No recent DevMate responses captured for this model yet.');
+      return;
+    }
+    const types = Object.keys(buckets);
+    const items = types.map(t => ({
+      label: this.labelForResponseType(t),
+      description: t
+    }));
+    let picked: { label: string; description?: string } | undefined;
+    if (items.length === 1) {
+      picked = items[0];
+    } else {
+      picked = await vscode.window.showQuickPick(items, {
+        placeHolder: 'Select which last response to paste'
+      });
+      if (!picked) return;
+    }
+    const typeKey = picked.description || picked.label;
+    const text = buckets[typeKey] || '';
+    if (!text) {
+      vscode.window.showWarningMessage('Selected response is empty.');
+      return;
+    }
+    const sel = editor.selection;
+    await editor.edit(edit => edit.replace(sel, text));
+    vscode.window.setStatusBarMessage(`[DevMate AI Chat] Inserted "${picked.label}" response.`, 3000);
   }
 
   // Return all indices where a line matches (exact or whitespace-normalized)
