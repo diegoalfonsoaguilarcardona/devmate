@@ -2225,9 +2225,8 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
     const newSeq = hunkLines
       .filter(l => l.startsWith(' ') || l.startsWith('+'))
       .map(l => l.slice(1));
-    const oldSeq = oldItems.map(x => x.text);
-    const minusOnly = hunkLines.filter(l => l.startsWith('-')).map(l => l.slice(1));
-    const plusOnly = hunkLines.filter(l => l.startsWith('+')).map(l => l.slice(1));
+    const { oldSeq, minusOnly, plusOnly, leadingCtx, trailingCtx } = this.buildHunkSequences(hunkLines);
+
 
     // Idempotency guards
     const hasNewExact = newSeq.length ? this.findSubsequence(curLines, newSeq, false) !== -1 : false;
@@ -2240,7 +2239,11 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
       }
     }
     if (minusOnly.length > 0 && plusOnly.length > 0) {
-      if (hasNewExact || hasNewWs) {
+      // Only skip if the new exists AND the old/removed lines are not present anymore.
+      const opts = { ignoreWs: true, trimRight: true };
+      const oldStillThere = (oldSeq.length ? this.findSubsequenceAdv(curLines, oldSeq, opts) !== -1 : false);
+      const minusStillThere = (minusOnly.length ? this.findSubsequenceAdv(curLines, minusOnly, opts) !== -1 : false);
+      if ((hasNewExact || hasNewWs) && !oldStillThere && !minusStillThere) {
         return { ok: true, text: current, note: 'Replacement already present; skipping' };
       }
     }
@@ -2252,17 +2255,26 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
       }
     }
 
+    const accept = (nextLines: string[], via: any, note?: string) => {
+      const v = this.validateHunkEffect(curLines, nextLines, { oldSeq, newSeq, minusOnly, plusOnly });
+      if (!v.ok) return null;
+      return { ok: true, text: nextLines.join('\n'), via, note };
+    };
+
+
     // Pure deletion
     if (plusOnly.length === 0 && minusOnly.length > 0) {
       let idx = this.findSubsequence(curLines, minusOnly, false);
       if (idx !== -1) {
-        const next = [...curLines.slice(0, idx), ...curLines.slice(idx + minusOnly.length)];
-        return { ok: true, text: next.join('\n'), via: 'delete' };
+        const nextLines = [...curLines.slice(0, idx), ...curLines.slice(idx + minusOnly.length)];
+        const r = accept(nextLines, 'delete');
+        if (r) return r;
       }
       idx = this.findSubsequence(curLines, minusOnly, true);
       if (idx !== -1) {
-        const next = [...curLines.slice(0, idx), ...curLines.slice(idx + minusOnly.length)];
-        return { ok: true, text: next.join('\n'), via: 'whitespace' };
+        const nextLines = [...curLines.slice(0, idx), ...curLines.slice(idx + minusOnly.length)];
+        const r = accept(nextLines, 'whitespace');
+        if (r) return r;
       }
     }
 
@@ -2308,27 +2320,40 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
     if (oldSeq.length > 0) {
       let idx = this.findSubsequence(curLines, oldSeq, false);
       if (idx !== -1) {
-        const next = [...curLines.slice(0, idx), ...newSeq, ...curLines.slice(idx + oldSeq.length)];
-        return { ok: true, text: next.join('\n'), via: 'exact' };
+        const nextLines = [...curLines.slice(0, idx), ...newSeq, ...curLines.slice(idx + oldSeq.length)];
+        const r = accept(nextLines, 'exact');
+        if (r) return r;
       }
       idx = this.findSubsequence(curLines, oldSeq, true);
       if (idx !== -1) {
-        const next = [...curLines.slice(0, idx), ...newSeq, ...curLines.slice(idx + oldSeq.length)];
-        return { ok: true, text: next.join('\n'), via: 'whitespace' };
+        const nextLines = [...curLines.slice(0, idx), ...newSeq, ...curLines.slice(idx + oldSeq.length)];
+        const r = accept(nextLines, 'whitespace');
+        if (r) return r;
       }
       const idxIndent = this.findSubsequenceAdv(curLines, oldSeq, { ignoreIndent: true, trimRight: true });
       if (idxIndent !== -1) {
-        const next = [...curLines.slice(0, idxIndent), ...newSeq, ...curLines.slice(idxIndent + oldSeq.length)];
-        return { ok: true, text: next.join('\n'), via: 'indent' };
+        const nextLines = [...curLines.slice(0, idxIndent), ...newSeq, ...curLines.slice(idxIndent + oldSeq.length)];
+        const r = accept(nextLines, 'indent');
+        if (r) return r;
       }
       const ordered = this.findOrderedWithSlop(curLines, oldSeq, { ignoreWs: true, trimRight: true }, 3, 1200);
       if (ordered) {
-        const next = [
+        const nextLines = [
           ...curLines.slice(0, ordered.start),
           ...newSeq,
           ...curLines.slice(ordered.end + 1)
         ];
-        return { ok: true, text: next.join('\n'), via: 'ordered' };
+        const r = accept(nextLines, 'ordered');
+        if (r) return r;
+      }
+
+      // Fallback for replacements: try minusOnly (context-anchored) and either delete-only (dup) or replace.
+      if (minusOnly.length > 0 && plusOnly.length > 0) {
+        const rep = this.tryReplacementByMinusOnly(curLines, { oldSeq, newSeq, minusOnly, plusOnly, leadingCtx, trailingCtx });
+        if (rep.ok && rep.next) {
+          const r = accept(rep.next, 'fuzzy', rep.note);
+          if (r) return r;
+        }
       }
     }
     return { ok: false, note: 'Legacy apply failed' };
@@ -2503,7 +2528,8 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
   private extractUnifiedDiffBlocks(text: string): string[] {
     const blocks: string[] = [];
     // 1) ### FILE: <path> + fenced ``​`diff
-    const re = /(^|\n)###\s+FILE:\s+([^\r\n]+)\s*\n+``​`(?:diff)?\s*([\s\S]*?)``​`/g;
+    // Accept normal ``​` fences and the zero-width-space variant (``\u200B`)
+    const re = /(^|\n)###\s+FILE:\s+([^\r\n]+)\s*\n+(?:``​`|``\u200B`)(?:diff)?\s*\n([\s\S]*?)\n(?:``​`|``\u200B`)/g;
     let m: RegExpExecArray | null;
     while ((m = re.exec(text)) !== null) {
       const diffBody = (m[3] || '').trim();
@@ -2632,6 +2658,175 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
     }
     return -1;
   }
+
+  // ---------- Patch safety helpers ----------
+  private subseqEqualsAt(
+    hay: string[],
+    start: number,
+    needle: string[],
+    opts?: { ignoreWs?: boolean; ignoreIndent?: boolean; trimRight?: boolean }
+  ): boolean {
+    if (start < 0) return false;
+    if (needle.length === 0) return true;
+    if (start + needle.length > hay.length) return false;
+    for (let j = 0; j < needle.length; j++) {
+      const hj = this.normalizeLineForCompare(hay[start + j], opts);
+      const nj = this.normalizeLineForCompare(needle[j], opts);
+      if (hj !== nj) return false;
+    }
+    return true;
+  }
+
+  private findAllSubsequenceAdv(
+    hay: string[],
+    needle: string[],
+    opts?: { ignoreWs?: boolean; ignoreIndent?: boolean; trimRight?: boolean }
+  ): number[] {
+    const out: number[] = [];
+    if (needle.length === 0) return out;
+    for (let i = 0; i + needle.length <= hay.length; i++) {
+      if (this.subseqEqualsAt(hay, i, needle, opts)) out.push(i);
+    }
+    return out;
+  }
+
+  private countSubsequenceAdv(
+    hay: string[],
+    needle: string[],
+    opts?: { ignoreWs?: boolean; ignoreIndent?: boolean; trimRight?: boolean }
+  ): number {
+    if (needle.length === 0) return 0;
+    let count = 0;
+    for (let i = 0; i + needle.length <= hay.length; i++) {
+      if (this.subseqEqualsAt(hay, i, needle, opts)) {
+        count++;
+        i += Math.max(0, needle.length - 1); // non-overlapping by default
+      }
+    }
+    return count;
+  }
+
+  private buildHunkSequences(hunkLines: string[]) {
+    const oldSeq = hunkLines
+      .filter(l => l.startsWith(' ') || l.startsWith('-'))
+      .map(l => l.slice(1));
+    const newSeq = hunkLines
+      .filter(l => l.startsWith(' ') || l.startsWith('+'))
+      .map(l => l.slice(1));
+    const minusOnly = hunkLines.filter(l => l.startsWith('-')).map(l => l.slice(1));
+    const plusOnly = hunkLines.filter(l => l.startsWith('+')).map(l => l.slice(1));
+
+    const leadingCtx: string[] = [];
+    for (const l of hunkLines) {
+      if (l.startsWith(' ')) leadingCtx.push(l.slice(1));
+      else break;
+    }
+    const trailingCtx: string[] = [];
+    for (let i = hunkLines.length - 1; i >= 0; i--) {
+      const l = hunkLines[i];
+      if (l.startsWith(' ')) trailingCtx.unshift(l.slice(1));
+      else break;
+    }
+    return { oldSeq, newSeq, minusOnly, plusOnly, leadingCtx, trailingCtx };
+  }
+
+  private ctxMatchesAroundMinusOnly(
+    hay: string[],
+    idxMinus: number,
+    minusLen: number,
+    leadingCtx: string[],
+    trailingCtx: string[]
+  ): boolean {
+    const opts = { ignoreWs: true, ignoreIndent: false, trimRight: true };
+    if (leadingCtx.length) {
+      const start = idxMinus - leadingCtx.length;
+      if (start < 0) return false;
+      if (!this.subseqEqualsAt(hay, start, leadingCtx, opts)) return false;
+    }
+    if (trailingCtx.length) {
+      const start = idxMinus + minusLen;
+      if (start + trailingCtx.length > hay.length) return false;
+      if (!this.subseqEqualsAt(hay, start, trailingCtx, opts)) return false;
+    }
+    return true;
+  }
+
+  private validateHunkEffect(
+    before: string[],
+    after: string[],
+    seq: { oldSeq: string[]; newSeq: string[]; minusOnly: string[]; plusOnly: string[] }
+  ): { ok: boolean; reason?: string } {
+    const opts = { ignoreWs: true, trimRight: true };
+    const beforeMinus = seq.minusOnly.length ? this.countSubsequenceAdv(before, seq.minusOnly, opts) : 0;
+    const afterMinus = seq.minusOnly.length ? this.countSubsequenceAdv(after, seq.minusOnly, opts) : 0;
+    const beforeOld = seq.oldSeq.length ? this.countSubsequenceAdv(before, seq.oldSeq, opts) : 0;
+    const afterOld = seq.oldSeq.length ? this.countSubsequenceAdv(after, seq.oldSeq, opts) : 0;
+
+    if (seq.minusOnly.length) {
+      // MUST reduce either full-old match count or minus-only match count,
+      // otherwise we likely inserted without removing (duplication).
+      if (!(afterMinus < beforeMinus || afterOld < beforeOld)) {
+        return { ok: false, reason: 'No removals detected; refusing to apply (would duplicate content)' };
+      }
+    }
+    if (seq.plusOnly.length) {
+      const hasNewSeq = seq.newSeq.length ? (this.findSubsequenceAdv(after, seq.newSeq, opts) !== -1) : true;
+      const hasPlusOnly = this.findSubsequenceAdv(after, seq.plusOnly, opts) !== -1;
+      if (!(hasNewSeq || hasPlusOnly)) {
+        return { ok: false, reason: 'No additions detected after apply' };
+      }
+    }
+    return { ok: true };
+  }
+
+  private tryReplacementByMinusOnly(
+    curLines: string[],
+    seq: { oldSeq: string[]; newSeq: string[]; minusOnly: string[]; plusOnly: string[]; leadingCtx: string[]; trailingCtx: string[] },
+    hintIndex?: number
+  ): { ok: boolean; next?: string[]; note?: string } {
+    if (!seq.minusOnly.length) return { ok: false };
+    const opts = { ignoreWs: true, trimRight: true };
+    const idxs = this.findAllSubsequenceAdv(curLines, seq.minusOnly, opts);
+    if (!idxs.length) return { ok: false };
+
+    // Prefer indices where surrounding context matches (if context exists)
+    const ctxIdxs = idxs.filter(i => this.ctxMatchesAroundMinusOnly(curLines, i, seq.minusOnly.length, seq.leadingCtx, seq.trailingCtx));
+    const candidates = ctxIdxs.length ? ctxIdxs : (idxs.length === 1 ? idxs : []);
+    if (!candidates.length) {
+      return { ok: false, note: 'minusOnly matched multiple times but context did not disambiguate' };
+    }
+
+    // Choose nearest to hint if provided
+    let chosen = candidates[0];
+    if (typeof hintIndex === 'number' && Number.isFinite(hintIndex)) {
+      let bestDist = Math.abs(chosen - hintIndex);
+      for (const c of candidates) {
+        const d = Math.abs(c - hintIndex);
+        if (d < bestDist) { bestDist = d; chosen = c; }
+      }
+    }
+
+    // Duplication guard: if plusOnly is immediately adjacent, prefer deletion-only
+    const plusLen = seq.plusOnly.length;
+    const minusLen = seq.minusOnly.length;
+    const plusBefore = plusLen > 0 && this.subseqEqualsAt(curLines, chosen - plusLen, seq.plusOnly, opts);
+    const plusAfter = plusLen > 0 && this.subseqEqualsAt(curLines, chosen + minusLen, seq.plusOnly, opts);
+
+    if ((plusBefore || plusAfter) && plusLen > 0) {
+      const next = [...curLines.slice(0, chosen), ...curLines.slice(chosen + minusLen)];
+      return { ok: true, next, note: 'Detected duplicated apply (plus adjacent). Deleted minusOnly without reinserting.' };
+    }
+
+    // Normal: replace removed lines with added lines at same spot
+    const next = [
+      ...curLines.slice(0, chosen),
+      ...seq.plusOnly,
+      ...curLines.slice(chosen + minusLen)
+    ];
+    return { ok: true, next, note: 'Applied replacement via minusOnly match (context-anchored)' };
+  }
+
+
   // Enhanced hunk applier variant that leverages the header's oldStart as a locality hint.
   // Falls back to the legacy applyHunkToText if needed.
   private applyHunkToTextWithHint(
@@ -2641,6 +2836,7 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
   ) {
     // Reuse the legacy implementation but first attempt localized windowed strategies.
     // Clone of core logic with window-constrained attempts and insertion reindent option.
+    const beforeLinesSnapshot = current.replace(/\r\n/g, '\n').split('\n');
     const curLines = current.replace(/\r\n/g, '\n').split('\n');
     const oldItems = hunkLines
       .filter(l => l.startsWith(' ') || l.startsWith('-'))
@@ -2648,9 +2844,8 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
     const newSeq = hunkLines
       .filter(l => l.startsWith(' ') || l.startsWith('+'))
       .map(l => l.slice(1));
-    const oldSeq = oldItems.map(x => x.text);
-    const minusOnly = hunkLines.filter(l => l.startsWith('-')).map(l => l.slice(1));
-    const plusOnly = hunkLines.filter(l => l.startsWith('+')).map(l => l.slice(1));
+    
+    const { oldSeq, minusOnly, plusOnly, leadingCtx, trailingCtx } = this.buildHunkSequences(hunkLines);
 
     // Idempotency/duplication guards (same as legacy)
     const hasNewExact = this.findSubsequence(curLines, newSeq, false) !== -1;
@@ -2663,7 +2858,11 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
       }
     }
     if (minusOnly.length > 0 && plusOnly.length > 0) {
-      if (hasNewExact || hasNewWs) {
+      // Only skip if the NEW exists and the OLD (or removed lines) are not present anymore.
+      const opts = { ignoreWs: true, trimRight: true };
+      const oldStillThere = (oldSeq.length ? this.findSubsequenceAdv(curLines, oldSeq, opts) !== -1 : false);
+      const minusStillThere = (minusOnly.length ? this.findSubsequenceAdv(curLines, minusOnly, opts) !== -1 : false);
+      if ((hasNewExact || hasNewWs) && !oldStillThere && !minusStillThere) {
         return { ok: true as const, text: current, note: 'Replacement already present; skipping' };
       }
     }
@@ -2683,39 +2882,48 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
       const end = Math.min(curLines.length, approx + radiusB);
       const win = curLines.slice(start, end);
 
+      const accept = (nextLines: string[], via: any, note?: string) => {
+        const v = this.validateHunkEffect(curLines, nextLines, { oldSeq, newSeq, minusOnly, plusOnly });
+        if (!v.ok) return null;
+        return { ok: true, text: nextLines.join('\n'), via, note };
+      };
+
       // A) exact contiguous in window
       let idx = this.findSubsequence(win, oldSeq, false);
       if (idx !== -1) {
         const abs = start + idx;
-        const next = [
+        const nextLines = [
           ...curLines.slice(0, abs),
           ...newSeq,
           ...curLines.slice(abs + oldSeq.length)
         ];
-        return { ok: true, text: next.join('\n'), via: 'exact' };
+        const r = accept(nextLines, 'exact');
+        if (r) return r;
       }
       // B) whitespace-insensitive contiguous in window
       idx = this.findSubsequence(win, oldSeq, true);
       if (idx !== -1) {
         const abs = start + idx;
-        const next = [
+        const nextLines = [
           ...curLines.slice(0, abs),
           ...newSeq,
           ...curLines.slice(abs + oldSeq.length)
         ];
-        return { ok: true, text: next.join('\n'), via: 'whitespace' };
+        const r = accept(nextLines, 'whitespace');
+        if (r) return r;
       }
       // C) indentation-insensitive contiguous in window
       {
         const idxIndent = this.findSubsequenceAdv(win, oldSeq, { ignoreIndent: true, trimRight: true });
         if (idxIndent !== -1) {
           const abs = start + idxIndent;
-          const next = [
+          const nextLines = [
             ...curLines.slice(0, abs),
             ...newSeq,
             ...curLines.slice(abs + oldSeq.length)
           ];
-          return { ok: true, text: next.join('\n'), via: 'indent' };
+          const r = accept(nextLines, 'indent');
+          if (r) return r;
         }
       }
       // D) ordered-with-slop in window (bounded)
@@ -2736,12 +2944,13 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
           }
           const absStart = start + startIdx;
           const absEnd = start + endIdx;
-          const next = [
+          const nextLines = [
             ...curLines.slice(0, absStart),
             ...newSeq,
             ...curLines.slice(absEnd + 1)
           ];
-          return { ok: true, text: next.join('\n'), via: 'ordered', note: 'Applied with slop window (hinted)' };
+          const r = accept(nextLines, 'ordered', 'Applied with slop window (hinted)');
+          if (r) return r;
         }
       }
       return null;
@@ -2815,6 +3024,17 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
       };
       const insRes = tryIns();
       if (insRes) return insRes;
+    }
+
+    // Replacement fallback: if we couldn't match full oldSeq, try context-anchored minusOnly.
+    if (minusOnly.length > 0 && plusOnly.length > 0) {
+      const rep = this.tryReplacementByMinusOnly(curLines, { oldSeq, newSeq, minusOnly, plusOnly, leadingCtx, trailingCtx }, approx);
+      if (rep.ok && rep.next) {
+        const v = this.validateHunkEffect(curLines, rep.next, { oldSeq, newSeq, minusOnly, plusOnly });
+        if (v.ok) {
+          return { ok: true, text: rep.next.join('\n'), via: 'fuzzy', note: rep.note };
+        }
+      }
     }
 
     // Localized replacement attempts (windowed)
