@@ -24,6 +24,7 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
   private _currentMessageNumber = 0;
   private _enc = encodingForModel("gpt-4"); //Hardcoded for now
   private _lastResponsesByModel: Map<string, Record<string, string>> = new Map();
+  private _workspaceFolderForRelPath: Map<string, string> = new Map();
 
   private _settings: Settings = {
     selectedInsideCodeblock: false,
@@ -2231,10 +2232,8 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
     // Idempotency guards
     const hasNewExact = newSeq.length ? this.findSubsequence(curLines, newSeq, false) !== -1 : false;
     const hasNewWs = newSeq.length ? this.findSubsequence(curLines, newSeq, true) !== -1 : false;
-    const hasPlusExact = plusOnly.length ? this.findSubsequence(curLines, plusOnly, false) !== -1 : false;
-    const hasPlusWs = plusOnly.length ? this.findSubsequence(curLines, plusOnly, true) !== -1 : false;
     if (minusOnly.length === 0 && plusOnly.length > 0) {
-      if (hasNewExact || hasNewWs || hasPlusExact || hasPlusWs) {
+      if (hasNewExact || hasNewWs) {
         return { ok: true, text: current, note: 'Insertion already present; skipping' };
       }
     }
@@ -2263,7 +2262,7 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
 
 
     // Pure deletion
-    if (plusOnly.length === 0 && minusOnly.length > 0) {
+    if (plusOnly.length === 0 && minusOnly.length > 0 && oldSeq.length === minusOnly.length) {
       let idx = this.findSubsequence(curLines, minusOnly, false);
       if (idx !== -1) {
         const nextLines = [...curLines.slice(0, idx), ...curLines.slice(idx + minusOnly.length)];
@@ -2419,11 +2418,13 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
 
   // Workspace file helpers (async) used by patch applier
   private async readWorkspaceFileOptional(relPath: string): Promise<string | null> {
+    const key = relPath.replace(/\\/g, '/');
     const folders = vscode.workspace.workspaceFolders || [];
     for (const f of folders) {
       const abs = path.join(f.uri.fsPath, relPath);
       try {
         const data = await fsp.readFile(abs, 'utf8');
+        this._workspaceFolderForRelPath.set(key, f.uri.fsPath);
         return data.replace(/\r\n/g, '\n');
       } catch {
         // try next folder
@@ -2431,28 +2432,32 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
     }
     return null;
   }
-
   private async writeWorkspaceFile(relPath: string, content: string): Promise<void> {
+    const key = relPath.replace(/\\/g, '/');
     const folders = vscode.workspace.workspaceFolders || [];
     if (!folders.length) throw new Error('No workspace folder.');
-    const base = folders[0].uri.fsPath;
+    const mappedBase = this._workspaceFolderForRelPath.get(key);
+    const base = mappedBase || folders[0].uri.fsPath;
     const abs = path.join(base, relPath);
+    this._workspaceFolderForRelPath.set(key, base);
     await fsp.mkdir(path.dirname(abs), { recursive: true });
     await fsp.writeFile(abs, content, 'utf8');
   }
-
   private async deleteWorkspaceFile(relPath: string): Promise<void> {
+    const key = relPath.replace(/\\/g, '/');
     const folders = vscode.workspace.workspaceFolders || [];
     if (!folders.length) throw new Error('No workspace folder.');
-    const base = folders[0].uri.fsPath;
+    const mappedBase = this._workspaceFolderForRelPath.get(key);
+    const base = mappedBase || folders[0].uri.fsPath;
     const abs = path.join(base, relPath);
     try {
       await fsp.unlink(abs);
     } catch {
       // ignore if already gone
+    } finally {
+      this._workspaceFolderForRelPath.delete(key);
     }
   }
-
   // ---------------------------
   // Diff/Patch application logic
   // ---------------------------
@@ -2850,10 +2855,8 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
     // Idempotency/duplication guards (same as legacy)
     const hasNewExact = this.findSubsequence(curLines, newSeq, false) !== -1;
     const hasNewWs = this.findSubsequence(curLines, newSeq, true) !== -1;
-    const hasPlusExact = plusOnly.length > 0 ? this.findSubsequence(curLines, plusOnly, false) !== -1 : false;
-    const hasPlusWs = plusOnly.length > 0 ? this.findSubsequence(curLines, plusOnly, true) !== -1 : false;
     if (minusOnly.length === 0 && plusOnly.length > 0) {
-      if (hasNewExact || hasNewWs || hasPlusExact || hasPlusWs) {
+      if (hasNewExact || hasNewWs) {
         return { ok: true as const, text: current, note: 'Insertion already present; skipping' };
       }
     }
@@ -3109,6 +3112,7 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
       const before = (await this.readWorkspaceFileOptional(targetPath)) ?? '';
       let cur = before;
       let anyHunkApplied = false;
+      let fileFailed = false;
       let localAppliedVia: Array<'exact' | 'whitespace' | 'indent' | 'anchor' | 'ordered' | 'insert' | 'delete' | 'fuzzy'> = [];
       for (const h of file.hunks) {
         // Prefer hinted localized application using hunk header oldStart line
@@ -3140,14 +3144,15 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
             hunkText: h.lines,
             reason: res.note ? res.note : 'All strategies failed'
           });
-          continue; // try next hunk without aborting the entire file
+          fileFailed = true;
+          break; // strict per-file: don't write partial results
         }
         cur = res.text;
         anyHunkApplied = true;
         if (res.via) localAppliedVia.push(res.via);
       }
 
-      if (anyHunkApplied && cur !== before) {
+      if (!fileFailed && anyHunkApplied && cur !== before) {
         await this.writeWorkspaceFile(targetPath, cur);
         changed++;
         if (counters) {
@@ -3197,15 +3202,26 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
       const files = await vscode.workspace.findFiles('**/*', '**/{node_modules,.git,out,dist,build}/**', 10000);
       for (const u of files) relCandidates.push(vscode.workspace.asRelativePath(u, false).replace(/\\/g, '/'));
     }
+    const explicitFile = !!eb.file;
     const search = eb.search.replace(/\r\n/g, '\n');
     const replace = eb.replace.replace(/\r\n/g, '\n');
     let changed = 0;
+    let ambiguous = false;
     for (const rel of relCandidates) {
       const before = await this.readWorkspaceFileOptional(rel);
       if (before == null) continue;
-      // Try exact match first
-      if (before.includes(search)) {
-        const after = before.split(search).join(replace);
+      // Try exact match first (unique only)
+      const firstIdx = before.indexOf(search);
+      if (firstIdx !== -1) {
+        const secondIdx = before.indexOf(search, firstIdx + search.length);
+        if (secondIdx !== -1) {
+          if (explicitFile) {
+            return { success: false, details: `SEARCH block found multiple times in ${rel}; refusing to apply ambiguous EditBlock.`, count: 0 };
+          }
+          ambiguous = true;
+          continue;
+        }
+        const after = before.slice(0, firstIdx) + replace + before.slice(firstIdx + search.length);
         if (after !== before) {
           await this.writeWorkspaceFile(rel, after);
           changed++;
@@ -3248,7 +3264,10 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
         }
       }
     }
-    if (changed === 0) return { success: false, details: 'SEARCH block not found in workspace (even with whitespace tolerance).', count: 0 };
+    if (changed === 0) {
+      const extra = ambiguous ? ' (Note: found multiple ambiguous matches and refused to apply.)' : '';
+      return { success: false, details: 'SEARCH block not found in workspace (even with whitespace tolerance).' + extra, count: 0 };
+    }
     return { success: true, details: `EditBlock applied to ${changed} file(s).`, count: changed };
   }
 
