@@ -2299,19 +2299,9 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
         }
       }
       if (insertPos !== -1) {
-        // Try to preserve reasonable indentation relative to previous line
-        const prevLine = insertPos > 0 ? curLines[insertPos - 1] : '';
-        const targetIndent = this.getIndentString(prevLine);
-        const baseIndent = this.minCommonIndent(plusOnly);
-        const reindented = plusOnly.map(line => {
-          if (line.trim().length === 0) return line;
-          const curIndent = this.getIndentString(line);
-          const delta = curIndent.length - baseIndent.length;
-          if (delta <= 0) return targetIndent + line.slice(curIndent.length);
-          return targetIndent + ' '.repeat(delta) + line.slice(curIndent.length);
-        });
-        const next = [...curLines.slice(0, insertPos), ...reindented, ...curLines.slice(insertPos)];
-        return { ok: true, text: next.join('\n'), via: 'insert' };
+        const nextLines = [...curLines.slice(0, insertPos), ...plusOnly, ...curLines.slice(insertPos)];
+        const r = accept(nextLines, 'insert', 'Pure insertion (verbatim)');
+        if (r) return r;
       }
     }
 
@@ -2582,24 +2572,6 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
     }
     return null;
   }
-
-  // Simple indentation helpers for insertion cases
-  private getIndentString(s: string): string {
-    const m = s.match(/^[ \t]*/);
-    return m ? m[0] : '';
-  }
-  private minCommonIndent(lines: string[]): string {
-    const nonEmpty = lines.filter(l => l.trim().length > 0);
-    if (!nonEmpty.length) return '';
-    let min: number | null = null;
-    for (const l of nonEmpty) {
-      const ind = this.getIndentString(l).length;
-      if (min === null || ind < min) min = ind;
-    }
-    return ' '.repeat(min || 0);
-  }
-
-
   // Convert an OpenAI Update File chunk into a unified diff string
   private convertOpenAIPatchUpdateToUnified(u: { path: string; body: string }): string {
     const p = u.path.replace(/^(\.\/)/, '');
@@ -3004,26 +2976,12 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
           }
         }
         if (insertPos === -1) return null;
-
-        // Optional indentation preservation: align inserted lines to surrounding style
-        const prevLine = insertPos > 0 ? curLines[insertPos - 1] : '';
-        const targetIndent = this.getIndentString(prevLine);
-        const baseIndent = this.minCommonIndent(plusOnly);
-        const reindented = plusOnly.map(line => {
-          if (line.trim().length === 0) return line; // keep blank lines
-          const curIndent = this.getIndentString(line);
-          // Compute relative indent delta from the baseIndent
-          const delta = curIndent.length - baseIndent.length;
-          if (delta <= 0) return targetIndent + line.slice(curIndent.length);
-          // keep extra relative indentation beyond base
-          return targetIndent + ' '.repeat(delta) + line.slice(curIndent.length);
-        });
         const next = [
           ...curLines.slice(0, insertPos),
-          ...reindented,
+          ...plusOnly,
           ...curLines.slice(insertPos)
         ];
-        return { ok: true, text: next.join('\n'), via: 'insert', note: 'Pure insertion with indent adjust' };
+        return { ok: true, text: next.join('\n'), via: 'insert', note: 'Pure insertion (verbatim)' };
       };
       const insRes = tryIns();
       if (insRes) return insRes;
