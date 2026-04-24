@@ -8,15 +8,311 @@
             "responsesUrl": "https://api.openai.com/v1",            
             "models": [
                 {
+                    "name": "gpt-5.1 (Responses)",
+                    "model_name": "gpt-5.1",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
+                    "options": {
+                        "reasoning": { "effort": "medium", "summary": "auto" }
+                    }
+                },
+                                {
+                    "name": "gpt-5.1 H (Responses)",
+                    "model_name": "gpt-5.1",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
+                    "options": {
+                        "reasoning": { "effort": "high", "summary": "auto" }
+                    }
+                },
+
+                {
+                    "name": "gpt-5.1 with Web Search (Responses)",
+                    "model_name": "gpt-5.1",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
+                    "tools": [
+                        { "type": "web_search" }
+                    ],
+                    "options": {
+                        "temperature": 1.0,
+                        "tool_choice": "auto",
+                        "reasoning": { "effort": "medium", "summary": "auto" }
+                    }
+                },
+                                {
+                    "name": "gpt-5.1 H with Web Search (Responses)",
+                    "model_name": "gpt-5.1",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
+                    "tools": [
+                        { "type": "web_search" }
+                    ],
+                    "options": {
+                        "temperature": 1.0,
+                        "tool_choice": "auto",
+                        "reasoning": { "effort": "high", "summary": "auto" }
+                    }
+                },
+                {
+                    "name": "gpt-5.1-codex (Responses)",
+                    "model_name": "gpt-5.1-codex",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
+                    "options": {
+                    }
+                },
+                {
+                    "name": "gpt-5.1-codex with Web Search (Responses)",
+                    "model_name": "gpt-5.1-codex",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
+                    "tools": [
+                        { "type": "web_search" }
+                    ],
+                    "options": {
+                        "temperature": 1.0,
+                        "tool_choice": "auto",
+                        "reasoning": { "effort": "medium", "summary": "auto" }
+                    }
+                },
+                {
+                    "name": "gpt-5.2 (Responses)",
+                    "model_name": "gpt-5.2",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.75,
+                        "output": 14.0,
+                        "cached_input": 0.175
+                    },
+                    "options": {
+                        "reasoning": { "effort": "high", "summary": "auto" }
+                    }
+                },
+                {
+                    "name": "gpt-5.2 with Web Search (Responses)",
+                    "model_name": "gpt-5.2",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.75,
+                        "output": 14.0,
+                        "cached_input": 0.175
+                    },
+                    "tools": [
+                        { "type": "web_search" }
+                    ],
+                    "options": {
+                        "temperature": 1.0,
+                        "tool_choice": "auto",
+                        "reasoning": { "effort": "high", "summary": "auto" }
+                    }
+                },
+                {
+                    "name": "gpt-5.2-pro (Responses)",
+                    "model_name": "gpt-5.2-pro",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 21.0,
+                        "output": 168.0
+                    },
+                    "options": {
+                        "reasoning": { "summary": "auto" }
+                    }
+                },
+                {
+                    "name": "gpt-5.2-pro with Web Search (Responses)",
+                    "model_name": "gpt-5.2-pro",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 21.0,
+                        "output": 168.0
+                    },
+                    "tools": [
+                        { "type": "web_search" }
+                    ],
+                    "options": {
+                        "temperature": 1.0,
+                        "tool_choice": "auto",
+                        "reasoning": { "effort": "high", "summary": "auto" }
+                    }
+                },
+                {
+                    "name": "gpt-5.4",
+                    "model_name": "gpt-5.4",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 2.5,
+                        "output": 15.0,
+                        "cached_input": 0.25
+                    },
+                    "options": {
+                        "reasoning": { "summary": "auto" }
+                    }
+                },
+                {
+                    "name": "gpt-5.4 H (Responses)",
+                    "model_name": "gpt-5.4",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 2.5,
+                        "output": 15.0,
+                        "cached_input": 0.25
+                    },
+                    "options": {
+                        "reasoning": { "effort": "high", "summary": "auto" }
+                    }
+                },
+                {
+                    "name": "gpt-5.4 with Web Search (Responses)",
+                    "model_name": "gpt-5.4",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 2.5,
+                        "output": 15.0,
+                        "cached_input": 0.25
+                    },
+                    "tools": [
+                        { "type": "web_search" }
+                    ],
+
+                    "options": {
+                        "tool_choice": "auto",
+                        "reasoning": { "summary": "auto" }
+                    }
+                },
+                {
+                    "name": "gpt-5.4 H with Web Search (Responses)",
+                    "model_name": "gpt-5.4",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 2.5,
+                        "output": 15.0,
+                        "cached_input": 0.25
+                    },
+                    "tools": [
+                        { "type": "web_search" }
+                    ],
+
+                    "options": {
+                        "tool_choice": "auto",
+                        "reasoning": { "effort": "high", "summary": "auto" }
+                    }
+                },
+                {
+                    "name": "gpt-5.1 verbosity Low",
+                    "model_name": "gpt-5.1",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
+                    "options": {
+                        "temperature": 1.0,
+                        "verbosity": "low",
+                        "reasoning": { "effort": "medium", "summary": "auto" }
+                    }
+                },
+                {
+                    "name": "gpt-5.1",
+                    "model_name": "gpt-5.1",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
+                    "options": {
+                        "temperature": 1.0
+                    }
+                },
+                {
+                    "name": "gpt-5.1 reasoning effort minimal with Web Search (Responses)",
+                    "model_name": "gpt-5.1",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
+                    "tools": [
+                        { "type": "web_search" }
+                    ],
+                    "options": {
+                        "temperature": 1.0,
+                        "tool_choice": "auto",
+                        "reasoning": {
+                            "effort": "low",
+                            "summary": "auto"
+                        }
+                    }
+                },
+                {
                     "name": "gpt-5 (Responses)",
                     "model_name": "gpt-5",
                     "api": "responses",
                     "pricing": {
                         "currency": "USD",
                         "unit": "per_1m_tokens",
-                        "input": 0,
-                        "output": 0,
-                        "cached_input": 0
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
                     },
                     "options": {
                     }
@@ -24,6 +320,13 @@
                 {
                     "name": "gpt-5 verbosity Low",
                     "model_name": "gpt-5",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
                     "options": {
                         "temperature": 1.0,
                         "verbosity": "low"
@@ -32,6 +335,13 @@
                 {
                     "name": "gpt-5",
                     "model_name": "gpt-5",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
                     "options": {
                         "temperature": 1.0
                     }
@@ -40,6 +350,13 @@
                     "name": "gpt-5 with Web Search (Responses)",
                     "model_name": "gpt-5",
                     "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
                     "tools": [
                         { "type": "web_search" }
                     ],
@@ -52,6 +369,13 @@
                     "name": "gpt-5 reasoning effort minimal with Web Search (Responses)",
                     "model_name": "gpt-5",
                     "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
                     "tools": [
                         { "type": "web_search" }
                     ],
@@ -68,6 +392,13 @@
                     "name": "gpt-4o with Web Search (Responses)",
                     "model_name": "gpt-4o",
                     "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 2.5,
+                        "output": 10.0,
+                        "cached_input": 1.25
+                    },
                     "tools": [
                         { "type": "web_search" }
                     ],
@@ -80,6 +411,13 @@
                     "name": "gpt-4.1 with Web Search (Responses)",
                     "model_name": "gpt-4.1",
                     "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 2.0,
+                        "output": 8.0,
+                        "cached_input": 0.5
+                    },
                     "tools": [
                         { "type": "web_search" }
                     ],
@@ -88,19 +426,33 @@
                         "tool_choice": "auto"
                     }
                 },                
-                
+
                 {
                     "name": "gpt-5 reasoning effort minimal",
                     "model_name": "gpt-5",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
                     "options": {
                         "temperature": 1.0,
-                        "reasoning_effort": "minimal"
+                        "reasoning_effort": "minimal",
                     }
                 },
                 {
                     "name": "gpt-5-codex (Responses)",
                     "model_name": "gpt-5-codex",
                     "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
                     "options": {
                     }
                 },
@@ -108,6 +460,13 @@
                     "name": "gpt-5-codex with Web Search (Responses)",
                     "model_name": "gpt-5-codex",
                     "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
                     "tools": [
                         { "type": "web_search" }
                     ],
@@ -120,6 +479,13 @@
                     "name": "gpt-5-codex verbosity Low (Responses)",
                     "model_name": "gpt-5-codex",
                     "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
                     "options": {
                         "temperature": 1.0,
                         "verbosity": "low"
@@ -129,6 +495,13 @@
                     "name": "gpt-5-codex reasoning effort minimal (Responses)",
                     "model_name": "gpt-5-codex",
                     "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
                     "options": {
                         "temperature": 1.0,
                         "reasoning": {
@@ -140,6 +513,13 @@
                 {
                     "name": "gpt-4o",
                     "model_name": "gpt-4o",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 2.5,
+                        "output": 10.0,
+                        "cached_input": 1.25
+                    },
                     "options": {
                         "temperature": 1.0
                     }
@@ -147,6 +527,13 @@
                 {
                     "name": "gpt-4o-mini",
                     "model_name": "gpt-4o-mini",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 0.15,
+                        "output": 0.6,
+                        "cached_input": 0.075
+                    },
                     "options": {
                         "temperature": 1.0
                     }
@@ -154,6 +541,13 @@
                 {
                     "name": "gpt-4.1",
                     "model_name": "gpt-4.1",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 2.0,
+                        "output": 8.0,
+                        "cached_input": 0.5
+                    },
                     "options": {
                         "temperature": 1.0
                     }
@@ -161,6 +555,13 @@
                 {
                     "name": "gpt-4.1-mini",
                     "model_name": "gpt-4.1-mini",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 0.4,
+                        "output": 1.6,
+                        "cached_input": 0.1
+                    },
                     "options": {
                         "temperature": 1.0
                     }
@@ -168,6 +569,13 @@
                 {
                     "name": "gpt-4.1-nano",
                     "model_name": "gpt-4.1-nano",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 0.1,
+                        "output": 0.4,
+                        "cached_input": 0.025
+                    },
                     "options": {
                         "temperature": 1.0
                     }
@@ -175,18 +583,39 @@
                 {
                     "name": "o3",
                     "model_name": "o3",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 2.0,
+                        "output": 8.0,
+                        "cached_input": 0.5
+                    },
                     "options": {
                     }
                 },
                 {
                     "name": "o3-mini",
                     "model_name": "o3-mini",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.1,
+                        "output": 4.4,
+                        "cached_input": 0.55
+                    },
                     "options": {
                     }
                 },
                 {
                     "name": "o4-mini low",
                     "model_name": "o4-mini",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.1,
+                        "output": 4.4,
+                        "cached_input": 0.275
+                    },
                     "options": {
                         "reasoning_effort": "low"
                     }
@@ -194,16 +623,737 @@
                 {
                     "name": "o4-mini",
                     "model_name": "o4-mini",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.1,
+                        "output": 4.4,
+                        "cached_input": 0.275
+                    },
                     "options": {
                     }
                 },
                 {
                     "name": "o4-mini high",
                     "model_name": "o4-mini",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.1,
+                        "output": 4.4,
+                        "cached_input": 0.275
+                    },
                     "options": {
                         "reasoning_effort": "high"
                     }
-                }
+                },
+                {
+                    "name": "o4-mini-deep-research",
+                    "model_name": "o4-mini-deep-research",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 2.0,
+                        "output": 8.0,
+                        "cached_input": 0.5
+                    },
+                    "options": {
+                    }
+                },
+                {
+                    "name": "o4-mini-deep-research (web search)",
+                    "model_name": "o4-mini-deep-research",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 2.0,
+                        "output": 8.0,
+                        "cached_input": 0.5
+                    },
+                    "options": {
+                    },
+                    "tools": [
+                        { "type": "web_search" }
+                    ],
+                },
+                {
+                    "name": "o3-deep-research",
+                    "model_name": "o3-deep-research",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 10.0,
+                        "output": 40.0,
+                        "cached_input": 2.5
+                    },
+                    "options": {
+                    }
+                },
+                {
+                    "name": "o3-deep-research (web search)",
+                    "model_name": "o3-deep-research",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 10.0,
+                        "output": 40.0,
+                        "cached_input": 2.5
+                    },
+                    "options": {
+                    },
+                    "tools": [
+                        { "type": "web_search" }
+                    ],
+                },
+
+
+            ]
+        },
+        {
+            "name": "MyRouter OpenAI",
+            "apiKey": "API_KEY",
+            "apiUrl": "http://localhost:8000/openai/v1",
+            "chatCompletionsUrl": "http://localhost:8000/openai/v1",
+            "responsesUrl": "http://localhost:8000/openai/v1",            
+            "models": [
+                {
+                    "name": "gpt-5.1 (Responses)",
+                    "model_name": "gpt-5.1",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
+                    "options": {
+                        "reasoning": { "effort": "medium", "summary": "auto" }
+                    }
+                },
+                                {
+                    "name": "gpt-5.1 H (Responses)",
+                    "model_name": "gpt-5.1",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
+                    "options": {
+                        "reasoning": { "effort": "high", "summary": "auto" }
+                    }
+                },
+
+                {
+                    "name": "gpt-5.1 with Web Search (Responses)",
+                    "model_name": "gpt-5.1",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
+                    "tools": [
+                        { "type": "web_search" }
+                    ],
+                    "options": {
+                        "temperature": 1.0,
+                        "tool_choice": "auto",
+                        "reasoning": { "effort": "medium", "summary": "auto" }
+                    }
+                },
+                                {
+                    "name": "gpt-5.1 H with Web Search (Responses)",
+                    "model_name": "gpt-5.1",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
+                    "tools": [
+                        { "type": "web_search" }
+                    ],
+                    "options": {
+                        "temperature": 1.0,
+                        "tool_choice": "auto",
+                        "reasoning": { "effort": "high", "summary": "auto" }
+                    }
+                },
+                {
+                    "name": "gpt-5.1-codex (Responses)",
+                    "model_name": "gpt-5.1-codex",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
+                    "options": {
+                    }
+                },
+                {
+                    "name": "gpt-5.1-codex with Web Search (Responses)",
+                    "model_name": "gpt-5.1-codex",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
+                    "tools": [
+                        { "type": "web_search" }
+                    ],
+                    "options": {
+                        "temperature": 1.0,
+                        "tool_choice": "auto",
+                        "reasoning": { "effort": "medium", "summary": "auto" }
+                    }
+                },
+                {
+                    "name": "gpt-5.2 (Responses)",
+                    "model_name": "gpt-5.2",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.75,
+                        "output": 14.0,
+                        "cached_input": 0.175
+                    },
+                    "options": {
+                        "reasoning": { "effort": "high", "summary": "auto" }
+                    }
+                },
+                {
+                    "name": "gpt-5.2 with Web Search (Responses)",
+                    "model_name": "gpt-5.2",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.75,
+                        "output": 14.0,
+                        "cached_input": 0.175
+                    },
+                    "tools": [
+                        { "type": "web_search" }
+                    ],
+                    "options": {
+                        "temperature": 1.0,
+                        "tool_choice": "auto",
+                        "reasoning": { "effort": "high", "summary": "auto" }
+                    }
+                },
+                {
+                    "name": "gpt-5.2-pro (Responses)",
+                    "model_name": "gpt-5.2-pro",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 21.0,
+                        "output": 168.0
+                    },
+                    "options": {
+                        "reasoning": { "summary": "auto" }
+                    }
+                },
+                {
+                    "name": "gpt-5.2-pro with Web Search (Responses)",
+                    "model_name": "gpt-5.2-pro",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 21.0,
+                        "output": 168.0
+                    },
+                    "tools": [
+                        { "type": "web_search" }
+                    ],
+                    "options": {
+                        "temperature": 1.0,
+                        "tool_choice": "auto",
+                        "reasoning": { "effort": "high", "summary": "auto" }
+                    }
+                },
+                {
+                    "name": "gpt-5.1 verbosity Low",
+                    "model_name": "gpt-5.1",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
+                    "options": {
+                        "temperature": 1.0,
+                        "verbosity": "low",
+                        "reasoning": { "effort": "medium", "summary": "auto" }
+                    }
+                },
+                {
+                    "name": "gpt-5.1",
+                    "model_name": "gpt-5.1",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
+                    "options": {
+                        "temperature": 1.0
+                    }
+                },
+                {
+                    "name": "gpt-5.1 reasoning effort minimal with Web Search (Responses)",
+                    "model_name": "gpt-5.1",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
+                    "tools": [
+                        { "type": "web_search" }
+                    ],
+                    "options": {
+                        "temperature": 1.0,
+                        "tool_choice": "auto",
+                        "reasoning": {
+                            "effort": "low",
+                            "summary": "auto"
+                        }
+                    }
+                },
+                {
+                    "name": "gpt-5 (Responses)",
+                    "model_name": "gpt-5",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
+                    "options": {
+                    }
+                },
+                {
+                    "name": "gpt-5 verbosity Low",
+                    "model_name": "gpt-5",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
+                    "options": {
+                        "temperature": 1.0,
+                        "verbosity": "low"
+                    }
+                },
+                {
+                    "name": "gpt-5",
+                    "model_name": "gpt-5",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
+                    "options": {
+                        "temperature": 1.0
+                    }
+                },
+                {
+                    "name": "gpt-5 with Web Search (Responses)",
+                    "model_name": "gpt-5",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
+                    "tools": [
+                        { "type": "web_search" }
+                    ],
+                    "options": {
+                        "temperature": 1.0,
+                        "tool_choice": "auto"
+                    }
+                },
+                {
+                    "name": "gpt-5 reasoning effort minimal with Web Search (Responses)",
+                    "model_name": "gpt-5",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
+                    "tools": [
+                        { "type": "web_search" }
+                    ],
+                    "options": {
+                        "temperature": 1.0,
+                        "tool_choice": "auto",
+                        "reasoning": {
+                            "effort": "low",
+                            "summary": "auto"
+                        }
+                    }
+                },
+                {
+                    "name": "gpt-4o with Web Search (Responses)",
+                    "model_name": "gpt-4o",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 2.5,
+                        "output": 10.0,
+                        "cached_input": 1.25
+                    },
+                    "tools": [
+                        { "type": "web_search" }
+                    ],
+                    "options": {
+                        "temperature": 1.0,
+                        "tool_choice": "auto"
+                    }
+                },
+                {
+                    "name": "gpt-4.1 with Web Search (Responses)",
+                    "model_name": "gpt-4.1",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 2.0,
+                        "output": 8.0,
+                        "cached_input": 0.5
+                    },
+                    "tools": [
+                        { "type": "web_search" }
+                    ],
+                    "options": {
+                        "temperature": 1.0,
+                        "tool_choice": "auto"
+                    }
+                },                
+
+                {
+                    "name": "gpt-5 reasoning effort minimal",
+                    "model_name": "gpt-5",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
+                    "options": {
+                        "temperature": 1.0,
+                        "reasoning_effort": "minimal",
+                    }
+                },
+                {
+                    "name": "gpt-5-codex (Responses)",
+                    "model_name": "gpt-5-codex",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
+                    "options": {
+                    }
+                },
+                {
+                    "name": "gpt-5-codex with Web Search (Responses)",
+                    "model_name": "gpt-5-codex",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
+                    "tools": [
+                        { "type": "web_search" }
+                    ],
+                    "options": {
+                        "temperature": 1.0,
+                        "tool_choice": "auto"
+                    }
+                },
+                {
+                    "name": "gpt-5-codex verbosity Low (Responses)",
+                    "model_name": "gpt-5-codex",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
+                    "options": {
+                        "temperature": 1.0,
+                        "verbosity": "low"
+                    }
+                },
+                {
+                    "name": "gpt-5-codex reasoning effort minimal (Responses)",
+                    "model_name": "gpt-5-codex",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
+                    "options": {
+                        "temperature": 1.0,
+                        "reasoning": {
+                            "effort": "low",
+                            "summary": "auto"
+                        }
+                    }
+                },
+                {
+                    "name": "gpt-4o",
+                    "model_name": "gpt-4o",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 2.5,
+                        "output": 10.0,
+                        "cached_input": 1.25
+                    },
+                    "options": {
+                        "temperature": 1.0
+                    }
+                },
+                {
+                    "name": "gpt-4o-mini",
+                    "model_name": "gpt-4o-mini",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 0.15,
+                        "output": 0.6,
+                        "cached_input": 0.075
+                    },
+                    "options": {
+                        "temperature": 1.0
+                    }
+                },
+                {
+                    "name": "gpt-4.1",
+                    "model_name": "gpt-4.1",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 2.0,
+                        "output": 8.0,
+                        "cached_input": 0.5
+                    },
+                    "options": {
+                        "temperature": 1.0
+                    }
+                },
+                {
+                    "name": "gpt-4.1-mini",
+                    "model_name": "gpt-4.1-mini",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 0.4,
+                        "output": 1.6,
+                        "cached_input": 0.1
+                    },
+                    "options": {
+                        "temperature": 1.0
+                    }
+                },
+                {
+                    "name": "gpt-4.1-nano",
+                    "model_name": "gpt-4.1-nano",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 0.1,
+                        "output": 0.4,
+                        "cached_input": 0.025
+                    },
+                    "options": {
+                        "temperature": 1.0
+                    }
+                },
+                {
+                    "name": "o3",
+                    "model_name": "o3",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 2.0,
+                        "output": 8.0,
+                        "cached_input": 0.5
+                    },
+                    "options": {
+                    }
+                },
+                {
+                    "name": "o3-mini",
+                    "model_name": "o3-mini",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.1,
+                        "output": 4.4,
+                        "cached_input": 0.55
+                    },
+                    "options": {
+                    }
+                },
+                {
+                    "name": "o4-mini low",
+                    "model_name": "o4-mini",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.1,
+                        "output": 4.4,
+                        "cached_input": 0.275
+                    },
+                    "options": {
+                        "reasoning_effort": "low"
+                    }
+                },
+                {
+                    "name": "o4-mini",
+                    "model_name": "o4-mini",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.1,
+                        "output": 4.4,
+                        "cached_input": 0.275
+                    },
+                    "options": {
+                    }
+                },
+                {
+                    "name": "o4-mini high",
+                    "model_name": "o4-mini",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.1,
+                        "output": 4.4,
+                        "cached_input": 0.275
+                    },
+                    "options": {
+                        "reasoning_effort": "high"
+                    }
+                },
+                {
+                    "name": "o4-mini-deep-research",
+                    "model_name": "o4-mini-deep-research",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 2.0,
+                        "output": 8.0,
+                        "cached_input": 0.5
+                    },
+                    "options": {
+                    }
+                },
+                {
+                    "name": "o4-mini-deep-research (web search)",
+                    "model_name": "o4-mini-deep-research",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 2.0,
+                        "output": 8.0,
+                        "cached_input": 0.5
+                    },
+                    "options": {
+                    },
+                    "tools": [
+                        { "type": "web_search" }
+                    ],
+                },
+                {
+                    "name": "o3-deep-research",
+                    "model_name": "o3-deep-research",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 10.0,
+                        "output": 40.0,
+                        "cached_input": 2.5
+                    },
+                    "options": {
+                    }
+                },
+                {
+                    "name": "o3-deep-research (web search)",
+                    "model_name": "o3-deep-research",
+                    "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 10.0,
+                        "output": 40.0,
+                        "cached_input": 2.5
+                    },
+                    "options": {
+                    },
+                    "tools": [
+                        { "type": "web_search" }
+                    ],
+                },
+
+
             ]
         },
         {
@@ -212,9 +1362,67 @@
             "apiUrl": "https://generativelanguage.googleapis.com/v1beta",
             "models": [
                 {
+                    "name": "gemini-3-flash-preview",
+                    "model_name": "gemini-3-flash-preview",
+                    "api": "gemini",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 0.5,
+                        "output": 3.0,
+                        "cached_input": 0.05,
+                        "input_audio": 1.0
+                    },
+                    "options": {
+                    }
+                },
+                {
+                    "name": "gemini-3-flash-preview with Google Search",
+                    "model_name": "gemini-3-flash-preview",
+                    "api": "gemini",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 0.5,
+                        "output": 3.0,
+                        "cached_input": 0.05,
+                        "input_audio": 1.0
+                    },
+                    "tools": [
+                        { "type": "google_search" }
+                    ],
+                    "options": { }
+                },
+                {
                     "name": "gemini-3-pro-preview",
                     "model_name": "gemini-3-pro-preview",
                     "api": "gemini",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 2.0,
+                        "output": 12.0,
+                        "cached_input": 0.2,
+                        "input_audio": 2.0
+                    },
+                    "options": {
+                    }
+                },
+                {
+                    "name": "gemini-3-pro-preview with Google search",
+                    "model_name": "gemini-3-pro-preview",
+                    "api": "gemini",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 2.0,
+                        "output": 12.0,
+                        "cached_input": 0.2,
+                        "input_audio": 2.0
+                    },
+                    "tools": [
+                        { "type": "google_search" }
+                    ],
                     "options": {
                     }
                 },
@@ -225,10 +1433,9 @@
                     "pricing": {
                         "currency": "USD",
                         "unit": "per_1m_tokens",
-                        "input": 0,
-                        "output": 0,
-                        "cached_input": 0,
-                        "reasoning": 0
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
                     },
                     "options": {
                     }
@@ -237,6 +1444,13 @@
                     "name": "gemini-2.5-pro with Google Search",
                     "model_name": "gemini-2.5-pro",
                     "api": "gemini",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
                     "tools": [
                         { "type": "google_search" }
                     ],
@@ -246,6 +1460,14 @@
                     "name": "gemini-2.5-flash",
                     "model_name": "gemini-2.5-flash",
                     "api": "gemini",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 0.3,
+                        "output": 2.5,
+                        "cached_input": 0.03,
+                        "input_audio": 1.0
+                    },
                     "options": {
                     }
                 },
@@ -253,6 +1475,14 @@
                     "name": "gemini-2.5-flash with Google Search",
                     "model_name": "gemini-2.5-flash",
                     "api": "gemini",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 0.3,
+                        "output": 2.5,
+                        "cached_input": 0.03,
+                        "input_audio": 1.0
+                    },
                     "tools": [
                         { "type": "google_search" }
                     ],
@@ -271,87 +1501,170 @@
                     "pricing": {
                         "currency": "USD",
                         "unit": "per_1m_tokens",
-                        "input": 0,
-                        "output": 0,
-                        "cache_read": 0,
-                        "cache_write": 0,
-                        "reasoning": 0
+                        "input": 2.0,
+                        "output": 12.0,
+                        "input_audio": 2.0
                     },
                     "options": {
                         "reasoning": {
                             "effort": "high",
                             "exclude": false
-                            }
+                            },
                     },
                     "reasoning_output_delta_path": "choices[0].delta.reasoning"
                 },
                 {
+                    "name": "google/gemini-3-pro-preview with web search",
+                    "model_name": "google/gemini-3-pro-preview:online",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 2.0,
+                        "output": 12.0,
+                        "input_audio": 2.0
+                    },
+                    "options": {
+                        "reasoning": {
+                            "effort": "high",
+                            "exclude": false
+                            },
+                    },
+                    "reasoning_output_delta_path": "choices[0].delta.reasoning"
+                },
+
+                {
                     "name": "google/gemini-3-pro-preview (reasoning medium)",
                     "model_name": "google/gemini-3-pro-preview",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 2.0,
+                        "output": 12.0,
+                        "input_audio": 2.0
+                    },
                     "options": {
                         "reasoning": {
                             "effort": "medium",
                             "exclude": false
-                            }
+                            },
                     },
                     "reasoning_output_delta_path": "choices[0].delta.reasoning"
                 },
                 {
                     "name": "google/gemini-3-pro-preview (reasoning low)",
                     "model_name": "google/gemini-3-pro-preview",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 2.0,
+                        "output": 12.0,
+                        "input_audio": 2.0
+                    },
                     "options": {
                         "reasoning": {
                             "effort": "low",
                             "exclude": false
-                            }
+                            },
                     },
                     "reasoning_output_delta_path": "choices[0].delta.reasoning"
                 },                
                 {
                     "name": "grok-code-fast-1",
                     "model_name": "x-ai/grok-code-fast-1",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 0.2,
+                        "output": 1.5
+                    },
                     "options": {
                     }
                 },
                 {
                     "name": "grok-code-fast-1 with web search",
                     "model_name": "x-ai/grok-code-fast-1:online",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 0.2,
+                        "output": 1.5
+                    },
                     "options": {
                     }
                 },
                 {
                     "name": "gpt-5",
                     "model_name": "openai/gpt-5",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
                     "options": {
                     }
                 },
                 {
                     "name": "gpt-5 with web search",
                     "model_name": "openai/gpt-5:online",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
                     "options": {
                     }
                 },
                 {
                     "name": "gpt-5-codex",
                     "model_name": "openai/gpt-5-codex",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
                     "options": {
                     }
                 },
                 {
                     "name": "gpt-5-codex with web search",
                     "model_name": "openai/gpt-5-codex:online",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.25,
+                        "output": 10.0,
+                        "cached_input": 0.125
+                    },
                     "options": {
                     }
                 },
                 {
                     "name": "google/gemini-2.5-pro-exp-03-25:free",
                     "model_name": "google/gemini-2.5-pro-exp-03-25:free",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 0,
+                        "output": 0
+                    },
                     "options": {
                     }
                 },
                 {
                     "name": "deepseek/deepseek-chat",
                     "model_name": "deepseek/deepseek-chat",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 0.32,
+                        "output": 0.89
+                    },
                     "options": {
                         "temperature": 1.0
                     }
@@ -359,6 +1672,12 @@
                 {
                     "name": "mistralai/mistral-large-2411",
                     "model_name": "mistralai/mistral-large-2411",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 2.0,
+                        "output": 6.0
+                    },
                     "options": {
                         "temperature": 1.0
                     }
@@ -373,48 +1692,107 @@
                 {
                     "name": "anthropic/claude-3.5-sonnet",
                     "model_name": "anthropic/claude-3.5-sonnet",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 3.0,
+                        "output": 15.0,
+                        "cache_write": 3.75,
+                        "cache_read": 0.3
+                    },
                     "options": {
                     }
                 },
                 {
                     "name": "anthropic/claude-3.7-sonnet",
                     "model_name": "anthropic/claude-3.7-sonnet",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 3.0,
+                        "output": 15.0,
+                        "cache_write": 3.75,
+                        "cache_read": 0.3
+                    },
                     "options": {
                     }
                 },
                 {
                     "name": "anthropic/claude-3.7-sonnet:thinking",
                     "model_name": "anthropic/claude-3.7-sonnet:thinking",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 3.0,
+                        "output": 15.0,
+                        "cache_write": 3.75,
+                        "cache_read": 0.3
+                    },
                     "options": {
                     }
                 },
                 {
                     "name": "anthropic/claude-sonnet-4.5",
                     "model_name": "anthropic/claude-sonnet-4.5",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 3.0,
+                        "output": 15.0,
+                        "cache_write": 3.75,
+                        "cache_read": 0.3
+                    },
                     "options": {
                     }
                 },
                 {
                     "name": "openai/o1-preview",
                     "model_name": "openai/o1-preview",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 15.0,
+                        "output": 60.0
+                    },
                     "options": {
                     }
                 },
                 {
                     "name": "openai/o3-mini",
                     "model_name": "openai/o3-mini",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.1,
+                        "output": 4.4,
+                        "cached_input": 0.55
+                    },
                     "options": {
                     }
                 },
                 {
                     "name": "openai/o3-mini-high",
                     "model_name": "openai/o3-mini-high",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 1.1,
+                        "output": 4.4,
+                        "cached_input": 0.55
+                    },
                     "options": {
                     }
                 },
                 {
                     "name": "openai/gpt-4.5-preview",
                     "model_name": "openai/gpt-4.5-preview",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 75.0,
+                        "output": 150.0,
+                        "cached_input": 37.5
+                    },
                     "options": {
                         "temperature": 1.0
                     }
@@ -422,18 +1800,36 @@
                 {
                     "name": "deepseek/deepseek-r1",
                     "model_name": "deepseek/deepseek-r1",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 0.45,
+                        "output": 2.15
+                    },
                     "options": {
                     }
                 },
                 {
                     "name": "deepseek/deepseek-r1-distill-llama-70b:free",
                     "model_name": "deepseek/deepseek-r1-distill-llama-70b:free",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 0,
+                        "output": 0
+                    },
                     "options": {
                     }
                 },
                 {
                     "name": "deepseek/deepseek-r1-distill-llama-70b",
                     "model_name": "deepseek/deepseek-r1-distill-llama-70b",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 0.7,
+                        "output": 0.8
+                    },
                     "options": {
                     }
                 }
@@ -460,6 +1856,12 @@
                 {
                     "name": "llama3.2:1b",
                     "model_name": "llama3.2:1b",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 0,
+                        "output": 0
+                    },
                     "options": {
                         "temperature": 1.0
                     }
@@ -467,6 +1869,12 @@
                 {
                     "name": "qwen2.5-coder:0.5b",
                     "model_name": "qwen2.5-coder:0.5b",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 0,
+                        "output": 0
+                    },
                     "options": {
                         "temperature": 1.0
                     }
@@ -484,8 +1892,8 @@
                     "pricing": {
                         "currency": "USD",
                         "unit": "per_1m_tokens",
-                        "input": 0,
-                        "output": 0
+                        "input": 0.75,
+                        "output": 0.99
                     },
                     "options": {
                     }
@@ -493,6 +1901,12 @@
                 {
                     "name": "Llama-3.3-70b-Specdec",
                     "model_name": "Llama-3.3-70b-Specdec",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 0.59,
+                        "output": 0.99
+                    },
                     "options": {
                         "temperature": 1.0
                     }
