@@ -2,7 +2,7 @@
   "name": "devmate-ai-chat",
   "displayName": "DevMate AI Chat",
   "description": "Use multiple llm providers and specific models right inside the IDE to enhance and automate your coding with AI-powered assistance",
-  "version": "1.1.15",
+  "version": "1.1.16",
   "publisher": "diegoalfonsoaguilarcardona",
   "icon": "resources/extensionIcon.png",
   "license": "MIT",
@@ -48,79 +48,79 @@
     "commands": [
       {
         "command": "devmate.ask",
-        "title": "Ask DevMate AI Chat"
+        "title": "DevMate: Ask"
       },
       {
         "command": "devmate.explain",
-        "title": "DevMate AI Chat: Explain selection"
+        "title": "DevMate: Explain selection"
       },
       {
         "command": "devmate.refactor",
-        "title": "DevMate AI Chat: Refactor selection"
+        "title": "DevMate: Refactor selection"
       },
       {
         "command": "devmate.findProblems",
-        "title": "DevMate AI Chat: Find problems"
+        "title": "DevMate: Find problems"
       },
       {
         "command": "devmate.optimize",
-        "title": "DevMate AI Chat: Optimize selection"
+        "title": "DevMate: Optimize selection"
       },
       {
         "command": "devmate.documentation",
-        "title": "DevMate AI Chat: Write documentation"
+        "title": "DevMate: Write documentation"
       },
       {
         "command": "devmate.resetConversation",
-        "title": "Reset DevMate AI Chat conversation"
+        "title": "DevMate: Reset conversation"
       },
       {
         "command": "devmate.pasteChat",
-        "title": "Paste DevMate AI Chat chat"
+        "title": "DevMate: Paste chat"
       },
       {
         "command": "devmate.useSelectionAsChat",
-        "title": "Use selection as DevMate AI Chat conversation"
+        "title": "DevMate: Use selection as conversation"
       },
       {
         "command": "devmate.appendSelectionAsChat",
-        "title": "Append selection to DevMate AI Chat conversation"
+        "title": "DevMate: Append selection to conversation"
       },
       {
         "command": "devmate.appendSelectionMarkdownAsChat",
-        "title": "Append Markdown selection to DevMate AI Chat conversation"
+        "title": "DevMate: Append Markdown selection"
       },
       {
         "command": "devmate.importSelectionJsonAsChat",
-        "title": "Append JSON selection to DevMate AI Chat conversation"
+        "title": "DevMate: Append JSON selection"
       },
       {
         "command": "devmate.appendSelectionReferencesAsChat",
-        "title": "DevMate AI Chat: Append referenced files from YAML selection"
+        "title": "DevMate: Append referenced files from YAML selection"
       },
       {
         "command": "devmate.tryAgain",
-        "title": "Retry DevMate AI Chat request"
+        "title": "DevMate: Retry request"
       },
       {
         "command": "devmate.addImageToChat",
-        "title": "Add Image to DevMate AI Chat"
+        "title": "DevMate: Add image to chat"
       },
       {
         "command": "devmate.addFileToChat",
-        "title": "Add File Content to DevMate AI Chat"
+        "title": "DevMate: Add file content to chat"
       },
       {
         "command": "devmate.addFileReferenceToChat",
-        "title": "Add File Reference to DevMate AI Chat"
+        "title": "DevMate: Add file reference to chat"
       },
       {
         "command": "devmate.addSelectedPathsAsReferences",
-        "title": "Add Selected File References to Chat"
+        "title": "DevMate: Add selected file references"
       },
       {
         "command": "devmate.pasteLastResponses",
-        "title": "DevMate AI Chat: Paste last responses"
+        "title": "DevMate: Paste last responses"
       }
     ],
     "menus": {
