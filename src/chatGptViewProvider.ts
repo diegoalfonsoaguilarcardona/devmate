@@ -2232,7 +2232,7 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
           include_usage: true
         };
 
-        const stream = await this._openai.chat.completions.create({
+        const stream: any = await (this._openai as any).chat.completions.create({
           model: this._settings.model,
           messages: messagesToSend,
           stream: true,
