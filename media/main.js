@@ -86,29 +86,76 @@
         return escapeHtml(String(s));
     }
 
-    function transformSearchReplaceBlocks(md) {
+    function escapeRegExp(s) {
+        return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    function transformFencedCodeBlocks(md) {
         const lines = md.split(/\r?\n/);
         const out = [];
+        let inFence = false;
+        let fenceChar = '';
+        let fenceLen = 0;
+        let fenceInfo = '';
+        let body = [];
+
+        const flushFence = () => {
+            const infoString = (fenceInfo || '').trim();
+            const label = infoString || 'text';
+            const searchReplacePath = infoString.startsWith('search-replace:')
+                ? infoString.slice('search-replace:'.length).trim()
+                : '';
+            const searchReplaceAttr = searchReplacePath
+                ? ` data-search-replace-path="${escapeHtmlAttribute(searchReplacePath)}"`
+                : '';
+            const labelAttr = ` data-code-block-label="${escapeHtmlAttribute(label)}"`;
+            const wrapperStyle = 'display:block;margin:0.75rem 0;';
+            const labelStyle = 'display:inline-block;margin:0 0 0.25rem 0;padding:0.2rem 0.5rem;border:1px solid var(--vscode-editorGroup-border);border-radius:4px;background:rgba(127,127,127,.12);color:var(--vscode-descriptionForeground);font-size:0.75rem;line-height:1.2;font-family:monospace;word-break:break-all;';
+
+            out.push(
+                `<div class="code-block-wrapper"${labelAttr} style="${wrapperStyle}">` +
+                `<div class="code-block-label" style="${labelStyle}">${escapeHtml(label)}</div>` +
+                `<pre${searchReplaceAttr}${labelAttr} style="margin:0;"><code>${escapeHtml(body.join('\n'))}</code></pre>` +
+                `</div>`
+            );
+        };
+
         for (let i = 0; i < lines.length; i++) {
-            const open = lines[i].match(/^(\s*)(`{3,})search-replace:(.+?)\s*$/);
-            if (!open) {
-                out.push(lines[i]);
+            const line = lines[i];
+
+            if (!inFence) {
+                const open = line.match(/^\s*(`{3,}|~{3,})(.*)$/);
+                if (!open) {
+                    out.push(line);
+                    continue;
+                }
+
+                inFence = true;
+                fenceChar = open[1][0];
+                fenceLen = open[1].length;
+                fenceInfo = (open[2] || '').trim();
+                body = [];
                 continue;
             }
-            const indent = open[1] || '';
-            const fenceLen = open[2].length;
-            const filePath = (open[3] || '').trim();
-            const body = [];
-            i++;
-            const closeRe = new RegExp('^\\s*`{' + fenceLen + ',}\\s*$');
-            while (i < lines.length && !closeRe.test(lines[i])) {
-                body.push(lines[i]);
-                i++;
+
+            const closeRe = new RegExp('^\\s*' + escapeRegExp(fenceChar) + '{' + fenceLen + ',}\\s*$');
+            if (closeRe.test(line)) {
+                flushFence();
+                inFence = false;
+                fenceChar = '';
+                fenceLen = 0;
+                fenceInfo = '';
+                body = [];
+                continue;
             }
-            out.push(
-                `${indent}<pre data-search-replace-path="${escapeHtmlAttribute(filePath)}"><code>${escapeHtml(body.join('\n'))}</code></pre>`
-            );
+
+            body.push(line);
         }
+
+        if (inFence) {
+            flushFence();
+        }
+
         return out.join('\n');
     }
 
