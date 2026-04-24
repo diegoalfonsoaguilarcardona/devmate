@@ -827,8 +827,8 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
       usage.output_tokens_details?.audio_tokens ?? usage.completion_tokens_details?.audio_tokens
     );
 
-    // OpenRouter may report cost in Responses API as well (depending on model routing)
-    const providerCost = typeof usage.cost === 'number' ? usage.cost / 100 : undefined;
+    // Many providers (e.g., OpenRouter) report cost in USD in the usage object.
+    const providerCost = typeof usage.cost === 'number' ? usage.cost : undefined;
 
     return {
       inputTokens: Math.max(inputTokens - cachedInputTokens, 0),
@@ -853,9 +853,8 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
     const outputAudioTokens = this._toNumber(usage.completion_tokens_details?.audio_tokens);
     const hasExplicitCachePricing = Object.prototype.hasOwnProperty.call(usage.prompt_tokens_details || {}, 'cache_write_tokens');
 
-    // OpenRouter and compatible providers report authoritative cost in the usage object.
-    // OpenRouter returns cost in credits: 1 credit = $0.01 USD.
-    const providerCost = typeof usage.cost === 'number' ? usage.cost / 100 : undefined;
+    // Many providers (e.g., OpenRouter) report authoritative cost in USD in the usage object.
+    const providerCost = typeof usage.cost === 'number' ? usage.cost : undefined;
 
     return {
       inputTokens: Math.max(promptTokens - cachedTokens - cacheWriteTokens, 0),
