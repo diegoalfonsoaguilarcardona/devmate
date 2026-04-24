@@ -111,20 +111,21 @@
 
         const flushFence = () => {
             const infoString = (fenceInfo || '').trim();
-            const label = infoString || 'text';
+            const labelBase = infoString || 'text';
+            const displayLabel = `🔴 ${labelBase}`;
             const searchReplacePath = infoString.startsWith('search-replace:')
                 ? infoString.slice('search-replace:'.length).trim()
                 : '';
             const searchReplaceAttr = searchReplacePath
                 ? ` data-search-replace-path="${escapeHtmlAttribute(searchReplacePath)}"`
                 : '';
-            const labelAttr = ` data-code-block-label="${escapeHtmlAttribute(label)}"`;
+            const labelAttr = ` data-code-block-label="${escapeHtmlAttribute(labelBase)}"`;
             const wrapperStyle = 'display:block;margin:0.75rem 0;';
             const labelStyle = 'display:inline-block;margin:0 0 0.25rem 0;padding:0.2rem 0.5rem;border:1px solid var(--vscode-editorGroup-border);border-radius:4px;background:rgba(127,127,127,.12);color:var(--vscode-descriptionForeground);font-size:0.75rem;line-height:1.2;font-family:monospace;word-break:break-all;';
 
             out.push(
                 `<div class="code-block-wrapper"${labelAttr} style="${wrapperStyle}">` +
-                `<div class="code-block-label" style="${labelStyle}">${escapeHtml(label)}</div>` +
+                `<div class="code-block-label" style="${labelStyle}">${escapeHtml(displayLabel)}</div>` +
                 `<pre${searchReplaceAttr}${labelAttr} style="margin:0;"><code>${escapeHtml(body.join('\n'))}</code></pre>` +
                 `</div>`
             );

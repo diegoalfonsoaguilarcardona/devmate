@@ -827,6 +827,9 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
       usage.output_tokens_details?.audio_tokens ?? usage.completion_tokens_details?.audio_tokens
     );
 
+    // OpenRouter may report cost in Responses API as well (depending on model routing)
+    const providerCost = typeof usage.cost === 'number' ? usage.cost / 100 : undefined;
+
     return {
       inputTokens: Math.max(inputTokens - cachedInputTokens, 0),
       cachedInputTokens,
@@ -834,7 +837,8 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
       reasoningTokens,
       inputAudioTokens,
       outputAudioTokens,
-      totalTokens: this._toNumber(usage.total_tokens) || undefined
+      totalTokens: this._toNumber(usage.total_tokens) || undefined,
+      costUSD: providerCost
     };
   }
 
@@ -849,6 +853,10 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
     const outputAudioTokens = this._toNumber(usage.completion_tokens_details?.audio_tokens);
     const hasExplicitCachePricing = Object.prototype.hasOwnProperty.call(usage.prompt_tokens_details || {}, 'cache_write_tokens');
 
+    // OpenRouter and compatible providers report authoritative cost in the usage object.
+    // OpenRouter returns cost in credits: 1 credit = $0.01 USD.
+    const providerCost = typeof usage.cost === 'number' ? usage.cost / 100 : undefined;
+
     return {
       inputTokens: Math.max(promptTokens - cachedTokens - cacheWriteTokens, 0),
       cachedInputTokens: hasExplicitCachePricing ? 0 : cachedTokens,
@@ -858,7 +866,8 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
       reasoningTokens,
       inputAudioTokens,
       outputAudioTokens,
-      totalTokens: this._toNumber(usage.total_tokens) || undefined
+      totalTokens: this._toNumber(usage.total_tokens) || undefined,
+      costUSD: providerCost
     };
   }
 
@@ -870,6 +879,7 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
     const candidatesTokenCount = this._toNumber(usageMetadata.candidatesTokenCount);
     const thoughtsTokenCount = this._toNumber(usageMetadata.thoughtsTokenCount);
 
+    // Gemini does not currently expose per-request cost directly; fall back to configured pricing.
     return {
       inputTokens: Math.max(promptTokenCount - cachedContentTokenCount, 0) + toolUsePromptTokenCount,
       cachedInputTokens: cachedContentTokenCount,
@@ -940,7 +950,16 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
   }
 
   private _calculateRequestCost(usage: TokenUsage | null): number {
-    if (!usage || !this._hasPricingConfigured()) return 0;
+    if (!usage) return 0;
+
+    // If provider reported explicit cost (e.g., OpenRouter), use it as authoritative.
+    // This accounts for tiered pricing, BYOK, cache discounts, and provider-specific rates.
+    if (typeof usage.costUSD === 'number' && Number.isFinite(usage.costUSD)) {
+      return usage.costUSD;
+    }
+
+    // Fall back to token-based calculation using configured pricing.
+    if (!this._hasPricingConfigured()) return 0;
 
     const pricing: ModelPricing = this._settings.pricing || {};
     const inputTokens = this._toNumber(usage.inputTokens);

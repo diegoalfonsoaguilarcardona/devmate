@@ -26,6 +26,9 @@ export interface TokenUsage {
   reasoningTokens?: number;
   inputAudioTokens?: number;
   outputAudioTokens?: number;
+  /** Optional cost in USD reported directly by provider (e.g., OpenRouter).
+   * If present, this authoritative cost supersedes token-based calculation. */
+  costUSD?: number;
 }
 
 export interface SessionCostTotals {
