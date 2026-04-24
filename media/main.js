@@ -90,6 +90,16 @@
         return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     }
 
+    function formatCost(amount, currency, pricingConfigured) {
+        if (!pricingConfigured) return 'n/a';
+        const value = Number(amount || 0);
+        if (!Number.isFinite(value)) return 'n/a';
+        const digits = value === 0 ? 6 : (value < 0.01 ? 6 : (value < 1 ? 4 : 2));
+        const prefix = currency === 'USD' ? '$' : '';
+        const suffix = currency && currency !== 'USD' ? ` ${currency}` : '';
+        return `${prefix}${value.toFixed(digits)}${suffix}`;
+    }
+
     function transformFencedCodeBlocks(md) {
         const lines = md.split(/\r?\n/);
         const out = [];
@@ -303,14 +313,22 @@
                 const p = v.promptTokens ?? 0;
                 const c = v.completionTokens ?? 0;
                 const model = v.model ?? '-';
-            
+                const currency = v.currency ?? 'USD';
+                const pricingConfigured = !!v.pricingConfigured;
+                const sessionCost = v.sessionCost ?? 0;
+                const lastRequestCost = v.lastRequestCost ?? 0;
+
                 const elTotal = document.getElementById('stats-total');
                 const elUsed = document.getElementById('stats-used');
                 const elModel = document.getElementById('stats-model');
-            
+                const elSessionCost = document.getElementById('stats-session-cost');
+                const elLastCost = document.getElementById('stats-last-cost');
+
                 if (elTotal) elTotal.textContent = `Total Tokens: ${total}`;
                 if (elUsed) elUsed.textContent = `Used: ${used} (${p}+${c})`;
                 if (elModel) elModel.textContent = `Model: ${model}`;
+                if (elSessionCost) elSessionCost.textContent = `Session Cost: ${formatCost(sessionCost, currency, pricingConfigured)}`;
+                if (elLastCost) elLastCost.textContent = `Last Request: ${formatCost(lastRequestCost, currency, pricingConfigured)}`;
                 break;
             }
             case "clearResponse": {

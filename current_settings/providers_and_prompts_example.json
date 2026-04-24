@@ -11,6 +11,13 @@
                     "name": "gpt-5 (Responses)",
                     "model_name": "gpt-5",
                     "api": "responses",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 0,
+                        "output": 0,
+                        "cached_input": 0
+                    },
                     "options": {
                     }
                 },
@@ -215,6 +222,14 @@
                     "name": "gemini-2.5-pro",
                     "model_name": "gemini-2.5-pro",
                     "api": "gemini",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 0,
+                        "output": 0,
+                        "cached_input": 0,
+                        "reasoning": 0
+                    },
                     "options": {
                     }
                 },
@@ -253,6 +268,15 @@
                 {
                     "name": "google/gemini-3-pro-preview (reasoning high)",
                     "model_name": "google/gemini-3-pro-preview",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 0,
+                        "output": 0,
+                        "cache_read": 0,
+                        "cache_write": 0,
+                        "reasoning": 0
+                    },
                     "options": {
                         "reasoning": {
                             "effort": "high",
@@ -423,6 +447,12 @@
                 {
                     "name": "deepseek-r1:1.5b",
                     "model_name": "deepseek-r1:1.5b",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 0,
+                        "output": 0
+                    },
                     "options": {
                         "temperature": 1.0
                     }
@@ -451,6 +481,12 @@
                 {
                     "name": "Deepseek-R1-Distill-Llama-70b",
                     "model_name": "Deepseek-R1-Distill-Llama-70b",
+                    "pricing": {
+                        "currency": "USD",
+                        "unit": "per_1m_tokens",
+                        "input": 0,
+                        "output": 0
+                    },
                     "options": {
                     }
                 },

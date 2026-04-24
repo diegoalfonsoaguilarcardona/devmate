@@ -352,6 +352,58 @@
                     "reasoning_output_delta_path": {
                       "type": "string",
                       "description": "Dot/bracket path to the streaming reasoning delta within chat completions chunks (e.g., choices[0].delta.reasoning)."
+                    },
+                    "pricing": {
+                      "type": "object",
+                      "description": "Optional user-defined pricing used to estimate per-session cost for this model.",
+                      "properties": {
+                        "unit": {
+                          "type": "string",
+                          "enum": [
+                            "per_1m_tokens",
+                            "per_token"
+                          ],
+                          "default": "per_1m_tokens",
+                          "description": "How the numeric prices below are interpreted."
+                        },
+                        "currency": {
+                          "type": "string",
+                          "default": "USD",
+                          "description": "Display currency for the estimated cost."
+                        },
+                        "input": {
+                          "type": "number",
+                          "description": "Price for regular input tokens."
+                        },
+                        "output": {
+                          "type": "number",
+                          "description": "Price for output tokens."
+                        },
+                        "cached_input": {
+                          "type": "number",
+                          "description": "Price for cached input tokens when the provider reports cached prompt tokens."
+                        },
+                        "cache_write": {
+                          "type": "number",
+                          "description": "Price for cache write tokens when the provider reports them separately."
+                        },
+                        "cache_read": {
+                          "type": "number",
+                          "description": "Price for cache read tokens when the provider reports them separately."
+                        },
+                        "reasoning": {
+                          "type": "number",
+                          "description": "Optional price for reasoning/thinking tokens when the provider reports them separately."
+                        },
+                        "input_audio": {
+                          "type": "number",
+                          "description": "Optional price for input audio tokens."
+                        },
+                        "output_audio": {
+                          "type": "number",
+                          "description": "Optional price for output audio tokens."
+                        }
+                      }
                     }
                   },
                   "required": [

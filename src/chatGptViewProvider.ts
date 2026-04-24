@@ -5,7 +5,7 @@ import { promises as fsp } from 'fs';
 import * as yaml from 'js-yaml';
 import OpenAI from "openai";
 import { encodingForModel } from "js-tiktoken";
-import { AuthInfo, Settings, Message, Provider, Prompt, UserMessage, SystemMessage, AssistantMessage, BASE_URL } from './types';
+import { AuthInfo, Settings, Message, Provider, Prompt, UserMessage, SystemMessage, AssistantMessage, BASE_URL, ModelPricing, SessionCostTotals, TokenUsage } from './types';
 import { newUnifiedDiffStrategy } from 'diff-apply';
 import { ChatCompletionContentPart, ChatCompletionContentPartImage, ChatCompletionContentPartText } from 'openai/resources/chat/completions';
 import { TextDecoder } from 'util';
@@ -19,13 +19,26 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
   private _openai?: OpenAI;
 
   private _response?: string;
-  private _totalNumberOfTokens?: number;
+  private _totalNumberOfTokens = 0;
   private _prompt?: string;
   private _fullPrompt?: string;
   private _currentMessageNumber = 0;
   private _enc = encodingForModel("gpt-4"); //Hardcoded for now
   private _lastResponsesByModel: Map<string, Record<string, string>> = new Map();
   private _workspaceFolderForRelPath: Map<string, string> = new Map();
+  private _sessionCostTotals: SessionCostTotals = {
+    requestCount: 0,
+    totalCost: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    cachedInputTokens: 0,
+    cacheWriteTokens: 0,
+    cacheReadTokens: 0,
+    reasoningTokens: 0,
+    inputAudioTokens: 0,
+    outputAudioTokens: 0
+  };
+  private _lastRequestCost = 0;
 
   private _settings: Settings = {
     selectedInsideCodeblock: false,
@@ -36,6 +49,7 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
     apiUrl: BASE_URL,
     apiType: 'chatCompletions',
     model: 'gpt-3.5-turbo',
+    pricing: undefined,
     options: {
     },
   };
@@ -429,6 +443,19 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
     this._response = '';
     this._fullPrompt = '';
     this._totalNumberOfTokens = 0;
+    this._lastRequestCost = 0;
+    this._sessionCostTotals = {
+      requestCount: 0,
+      totalCost: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      cachedInputTokens: 0,
+      cacheWriteTokens: 0,
+      cacheReadTokens: 0,
+      reasoningTokens: 0,
+      inputAudioTokens: 0,
+      outputAudioTokens: 0
+    };
     this._view?.webview.postMessage({ type: 'setPrompt', value: '' });
     this._messages = [];
 
@@ -740,7 +767,238 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
     return tokenList.length;
   }
 
+  private _toNumber(value: any): number {
+    const num = Number(value);
+    return Number.isFinite(num) ? num : 0;
+  }
 
+  private _hasPricingConfigured(): boolean {
+    const pricing = this._settings.pricing;
+    if (!pricing) return false;
+    return [
+      pricing.input,
+      pricing.output,
+      pricing.cached_input,
+      pricing.cache_write,
+      pricing.cache_read,
+      pricing.reasoning,
+      pricing.input_audio,
+      pricing.output_audio
+    ].some(value => typeof value === 'number' && Number.isFinite(value));
+  }
+
+  private _ratePerToken(value?: number): number {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return 0;
+    return this._settings.pricing?.unit === 'per_token' ? value : value / 1_000_000;
+  }
+
+  private _getCurrency(): string {
+    return this._settings.pricing?.currency || 'USD';
+  }
+
+  private _getPromptTokensFromUsage(usage: TokenUsage): number {
+    return this._toNumber(usage.inputTokens)
+      + this._toNumber(usage.cachedInputTokens)
+      + this._toNumber(usage.cacheWriteTokens)
+      + this._toNumber(usage.cacheReadTokens)
+      + this._toNumber(usage.inputAudioTokens);
+  }
+
+  private _getCompletionTokensFromUsage(usage: TokenUsage): number {
+    return this._toNumber(usage.outputTokens)
+      + this._toNumber(usage.reasoningTokens)
+      + this._toNumber(usage.outputAudioTokens);
+  }
+
+  private _extractResponsesTokenUsage(usage: any): TokenUsage | null {
+    if (!usage || typeof usage !== 'object') return null;
+    const inputTokens = this._toNumber(usage.input_tokens);
+    const cachedInputTokens = this._toNumber(
+      usage.input_tokens_details?.cached_tokens ?? usage.prompt_tokens_details?.cached_tokens
+    );
+    const outputTokens = this._toNumber(usage.output_tokens);
+    const reasoningTokens = this._toNumber(
+      usage.output_tokens_details?.reasoning_tokens ?? usage.completion_tokens_details?.reasoning_tokens
+    );
+    const inputAudioTokens = this._toNumber(
+      usage.input_tokens_details?.audio_tokens ?? usage.prompt_tokens_details?.audio_tokens
+    );
+    const outputAudioTokens = this._toNumber(
+      usage.output_tokens_details?.audio_tokens ?? usage.completion_tokens_details?.audio_tokens
+    );
+
+    return {
+      inputTokens: Math.max(inputTokens - cachedInputTokens, 0),
+      cachedInputTokens,
+      outputTokens,
+      reasoningTokens,
+      inputAudioTokens,
+      outputAudioTokens,
+      totalTokens: this._toNumber(usage.total_tokens) || undefined
+    };
+  }
+
+  private _extractChatCompletionTokenUsage(usage: any): TokenUsage | null {
+    if (!usage || typeof usage !== 'object') return null;
+    const promptTokens = this._toNumber(usage.prompt_tokens);
+    const cachedTokens = this._toNumber(usage.prompt_tokens_details?.cached_tokens);
+    const cacheWriteTokens = this._toNumber(usage.prompt_tokens_details?.cache_write_tokens);
+    const outputTokens = this._toNumber(usage.completion_tokens);
+    const reasoningTokens = this._toNumber(usage.completion_tokens_details?.reasoning_tokens);
+    const inputAudioTokens = this._toNumber(usage.prompt_tokens_details?.audio_tokens);
+    const outputAudioTokens = this._toNumber(usage.completion_tokens_details?.audio_tokens);
+    const hasExplicitCachePricing = Object.prototype.hasOwnProperty.call(usage.prompt_tokens_details || {}, 'cache_write_tokens');
+
+    return {
+      inputTokens: Math.max(promptTokens - cachedTokens - cacheWriteTokens, 0),
+      cachedInputTokens: hasExplicitCachePricing ? 0 : cachedTokens,
+      cacheReadTokens: hasExplicitCachePricing ? cachedTokens : 0,
+      cacheWriteTokens,
+      outputTokens,
+      reasoningTokens,
+      inputAudioTokens,
+      outputAudioTokens,
+      totalTokens: this._toNumber(usage.total_tokens) || undefined
+    };
+  }
+
+  private _extractGeminiTokenUsage(usageMetadata: any): TokenUsage | null {
+    if (!usageMetadata || typeof usageMetadata !== 'object') return null;
+    const promptTokenCount = this._toNumber(usageMetadata.promptTokenCount);
+    const cachedContentTokenCount = this._toNumber(usageMetadata.cachedContentTokenCount);
+    const toolUsePromptTokenCount = this._toNumber(usageMetadata.toolUsePromptTokenCount);
+    const candidatesTokenCount = this._toNumber(usageMetadata.candidatesTokenCount);
+    const thoughtsTokenCount = this._toNumber(usageMetadata.thoughtsTokenCount);
+
+    return {
+      inputTokens: Math.max(promptTokenCount - cachedContentTokenCount, 0) + toolUsePromptTokenCount,
+      cachedInputTokens: cachedContentTokenCount,
+      outputTokens: candidatesTokenCount,
+      reasoningTokens: thoughtsTokenCount,
+      totalTokens: this._toNumber(usageMetadata.totalTokenCount) || undefined
+    };
+  }
+
+  private _extractAnthropicTokenUsage(usage: any): TokenUsage | null {
+    if (!usage || typeof usage !== 'object') return null;
+    return {
+      inputTokens: this._toNumber(usage.input_tokens),
+      cacheWriteTokens: this._toNumber(usage.cache_creation_input_tokens),
+      cacheReadTokens: this._toNumber(usage.cache_read_input_tokens),
+      outputTokens: this._toNumber(usage.output_tokens)
+    };
+  }
+
+  private _extractOllamaNativeTokenUsage(payload: any): TokenUsage | null {
+    if (!payload || typeof payload !== 'object') return null;
+    if (!Object.prototype.hasOwnProperty.call(payload, 'prompt_eval_count') && !Object.prototype.hasOwnProperty.call(payload, 'eval_count')) {
+      return null;
+    }
+
+    const inputTokens = this._toNumber(payload.prompt_eval_count);
+    const outputTokens = this._toNumber(payload.eval_count);
+
+    return {
+      inputTokens,
+      outputTokens,
+      totalTokens: inputTokens + outputTokens
+    };
+  }
+
+  private _extractTokenUsage(payload: any): TokenUsage | null {
+    if (!payload || typeof payload !== 'object') return null;
+
+    if (payload.usageMetadata) {
+      return this._extractGeminiTokenUsage(payload.usageMetadata);
+    }
+
+    const usage = payload.usage || payload.message?.usage || payload.response?.usage || payload;
+    if (usage && typeof usage === 'object') {
+      if (
+        Object.prototype.hasOwnProperty.call(usage, 'cache_creation_input_tokens')
+        || Object.prototype.hasOwnProperty.call(usage, 'cache_read_input_tokens')
+      ) {
+        return this._extractAnthropicTokenUsage(usage);
+      }
+
+      if (
+        Object.prototype.hasOwnProperty.call(usage, 'input_tokens')
+        || Object.prototype.hasOwnProperty.call(usage, 'output_tokens')
+      ) {
+        return this._extractResponsesTokenUsage(usage);
+      }
+
+      if (
+        Object.prototype.hasOwnProperty.call(usage, 'prompt_tokens')
+        || Object.prototype.hasOwnProperty.call(usage, 'completion_tokens')
+      ) {
+        return this._extractChatCompletionTokenUsage(usage);
+      }
+    }
+
+    return this._extractOllamaNativeTokenUsage(payload);
+  }
+
+  private _calculateRequestCost(usage: TokenUsage | null): number {
+    if (!usage || !this._hasPricingConfigured()) return 0;
+
+    const pricing: ModelPricing = this._settings.pricing || {};
+    const inputTokens = this._toNumber(usage.inputTokens);
+    const cachedInputTokens = this._toNumber(usage.cachedInputTokens);
+    const cacheWriteTokens = this._toNumber(usage.cacheWriteTokens);
+    const cacheReadTokens = this._toNumber(usage.cacheReadTokens);
+    const reasoningTokens = this._toNumber(usage.reasoningTokens);
+    const inputAudioTokens = this._toNumber(usage.inputAudioTokens);
+    const outputAudioTokens = this._toNumber(usage.outputAudioTokens);
+
+    let outputTokens = this._toNumber(usage.outputTokens);
+    if (typeof pricing.reasoning === 'number' && Number.isFinite(pricing.reasoning)) {
+      outputTokens = Math.max(outputTokens - reasoningTokens, 0);
+    }
+
+    let total = 0;
+    total += inputTokens * this._ratePerToken(pricing.input);
+    total += cachedInputTokens * this._ratePerToken(pricing.cached_input ?? pricing.cache_read ?? pricing.input);
+    total += cacheReadTokens * this._ratePerToken(pricing.cache_read ?? pricing.cached_input ?? pricing.input);
+    total += cacheWriteTokens * this._ratePerToken(pricing.cache_write ?? pricing.input);
+    total += outputTokens * this._ratePerToken(pricing.output);
+    total += reasoningTokens * this._ratePerToken(pricing.reasoning ?? pricing.output);
+    total += inputAudioTokens * this._ratePerToken(pricing.input_audio ?? pricing.input);
+    total += outputAudioTokens * this._ratePerToken(pricing.output_audio ?? pricing.output);
+
+    return total;
+  }
+
+  private _addRequestUsageToSession(usage: TokenUsage, cost: number): void {
+    this._sessionCostTotals.requestCount += 1;
+    this._sessionCostTotals.totalCost += cost;
+    this._sessionCostTotals.inputTokens += this._toNumber(usage.inputTokens);
+    this._sessionCostTotals.outputTokens += this._toNumber(usage.outputTokens);
+    this._sessionCostTotals.cachedInputTokens += this._toNumber(usage.cachedInputTokens);
+    this._sessionCostTotals.cacheWriteTokens += this._toNumber(usage.cacheWriteTokens);
+    this._sessionCostTotals.cacheReadTokens += this._toNumber(usage.cacheReadTokens);
+    this._sessionCostTotals.reasoningTokens += this._toNumber(usage.reasoningTokens);
+    this._sessionCostTotals.inputAudioTokens += this._toNumber(usage.inputAudioTokens);
+    this._sessionCostTotals.outputAudioTokens += this._toNumber(usage.outputAudioTokens);
+  }
+
+  private _postStats(promptTokens: number, completionTokens: number): void {
+    this._view?.webview.postMessage({
+      type: 'updateStats',
+      value: {
+        totalTokens: this._totalNumberOfTokens,
+        usedTokens: promptTokens + completionTokens,
+        promptTokens,
+        completionTokens,
+        model: this._settings.model,
+        sessionCost: this._sessionCostTotals.totalCost,
+        lastRequestCost: this._lastRequestCost,
+        requestCount: this._sessionCostTotals.requestCount,
+        currency: this._getCurrency(),
+        pricingConfigured: this._hasPricingConfigured()
+      }
+    });
+  }
 
   public getSelectedMessagesWithoutSelectedProperty(): Omit<Message, 'selected'>[] {
     let ret = this._messages?.filter(message => message.selected).map(({ role, content }) => ({
@@ -834,21 +1092,8 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
       });
     }
 
-    if (this._totalNumberOfTokens !== undefined) {
-      this._totalNumberOfTokens += promtNumberOfTokens + completionTokens;
-
-      // NEW: send stats to the webview (always visible status row)
-      this._view?.webview.postMessage({
-        type: 'updateStats',
-        value: {
-          totalTokens: this._totalNumberOfTokens,
-          usedTokens: promtNumberOfTokens + completionTokens,
-          promptTokens: promtNumberOfTokens,
-          completionTokens,
-          model: this._settings.model
-        }
-      });
-    }
+    this._totalNumberOfTokens += promtNumberOfTokens + completionTokens;
+    this._postStats(promtNumberOfTokens, completionTokens);
 
     return chat_response;
   }
@@ -1233,6 +1478,10 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
     let chat_response = '';
     let searchPrompt = "";
     let movedInState = false;
+    let requestUsage: TokenUsage | null = null;
+    let finalPromptTokens = promtNumberOfTokens;
+    let finalCompletionTokens = 0;
+    this._lastRequestCost = 0;
     // Local collector of streamed responses by type for this run/model
     const buckets: Record<string, string> = {};
     const put = (t: string, s: string) => { if (!s) return; buckets[t] = (buckets[t] || '') + s; };
@@ -1399,6 +1648,7 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
         }
 
         let responsesStream: any = null;
+        let finalResponsesPayload: any = null;
 
         console.log(">>>>>>>>>>>>>>>>> responsesInput:", responsesInput);
 
@@ -1701,6 +1951,7 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
           // After streaming, fetch final response to extract reasoning summary if available
           try {
             const finalResp = await responsesStream.finalResponse();
+            finalResponsesPayload = finalResp;
             const outputArr: any[] = (finalResp as any)?.output || [];
             const reasoningItem = outputArr.find((o: any) => o?.type === 'reasoning');
             const summaryText =
@@ -1726,7 +1977,14 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
           this._messages?.push({ role: "assistant", content: full_message, selected: true });
           const tokenList = this._enc.encode(full_message);
           if (full_message) put('output_text', full_message);
-          chat_response = this._updateChatMessages(promtNumberOfTokens, tokenList.length);
+          requestUsage = requestUsage || this._extractTokenUsage(finalResponsesPayload);
+          if (requestUsage) {
+            finalPromptTokens = this._getPromptTokensFromUsage(requestUsage);
+            finalCompletionTokens = this._getCompletionTokensFromUsage(requestUsage);
+          } else {
+            finalCompletionTokens = tokenList.length;
+          }
+          chat_response = this._updateChatMessages(finalPromptTokens, finalCompletionTokens);
         } else {
           throw new Error('Responses API stream() not available in this SDK/version.');
         }
@@ -1846,6 +2104,7 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
           let lastSend = 0;
           let deltaAccumulator = '';
           let finalGrounding: any = null;
+          let lastUsageMetadata: any = null;
           // Deduplicate streamed queries/sources so we only print each once
           const seenQueries = new Set<string>();
           const seenSources = new Set<string>();
@@ -1877,6 +2136,9 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
                 if (!json || json === '[DONE]') continue;
                 let obj: any;
                 try { obj = JSON.parse(json); } catch { continue; }
+                if (obj?.usageMetadata) {
+                  lastUsageMetadata = obj.usageMetadata;
+                }
                 // Extract delta text
                 const cand = obj?.candidates?.[0];
                 const parts = cand?.content?.parts || [];
@@ -1951,14 +2213,29 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
           this._messages?.push({ role: "assistant", content: full_message_g, selected: true });
           const tokenList = this._enc.encode(full_message_g);
           if (full_message_g) put('assistant_text', full_message_g);
-          chat_response = this._updateChatMessages(promtNumberOfTokens, tokenList.length);
+          requestUsage = requestUsage || this._extractTokenUsage(lastUsageMetadata ? { usageMetadata: lastUsageMetadata } : null);
+          if (requestUsage) {
+            finalPromptTokens = this._getPromptTokensFromUsage(requestUsage);
+            finalCompletionTokens = this._getCompletionTokensFromUsage(requestUsage);
+          } else {
+            finalCompletionTokens = tokenList.length;
+          }
+          chat_response = this._updateChatMessages(finalPromptTokens, finalCompletionTokens);
         } else {
         // Default Chat Completions flow
+        const chatCompletionOptions = {
+          ...(this._settings.options || {}),
+        } as any;
+        chatCompletionOptions.stream_options = {
+          ...(chatCompletionOptions.stream_options || {}),
+          include_usage: true
+        };
+
         const stream = await this._openai.chat.completions.create({
           model: this._settings.model,
           messages: messagesToSend,
           stream: true,
-          ...this._settings.options, // Spread operator to include all keys from options
+          ...chatCompletionOptions, // Spread operator to include all keys from options
         });
 
         console.log("Message sender created");
@@ -1969,6 +2246,7 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
         full_message = "";
         // Collect reasoning deltas if configured (e.g., OpenRouter reasoning models)
         let reasoningDeltaCC = "";
+        let lastUsageChunk: any = null;
 
         // Throttled delta accumulator to reduce IPC messages
         let deltaAccumulator = "";
@@ -1985,6 +2263,10 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
 
         try {
           for await (const chunk of stream) {
+            const chunkUsage = (chunk as any)?.usage;
+            if (chunkUsage) {
+              lastUsageChunk = chunkUsage;
+            }
             const content = (chunk as any).choices?.[0]?.delta?.content || "";
             console.log("chunk:", chunk);
             console.log("content:", content);
@@ -2039,7 +2321,14 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
         console.log("Full Number of tokens:", completionTokens);
         const tokenList = this._enc.encode(full_message);
         console.log("Full Number of tokens tiktoken:", tokenList.length);
-          chat_response = this._updateChatMessages(promtNumberOfTokens, tokenList.length)
+        requestUsage = requestUsage || this._extractTokenUsage(lastUsageChunk);
+        if (requestUsage) {
+          finalPromptTokens = this._getPromptTokensFromUsage(requestUsage);
+          finalCompletionTokens = this._getCompletionTokensFromUsage(requestUsage);
+        } else {
+          finalCompletionTokens = tokenList.length;
+        }
+          chat_response = this._updateChatMessages(finalPromptTokens, finalCompletionTokens)
         }
       }
     } catch (e: any) {
@@ -2062,6 +2351,14 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
         this._messages?.push({ role: "assistant", content: `Request failed: ${fallback}`, selected: true });
         chat_response = this._updateChatMessages(promtNumberOfTokens, 0);
       }
+    }
+    if (requestUsage) {
+      const requestCost = this._calculateRequestCost(requestUsage);
+      this._lastRequestCost = requestCost;
+      this._addRequestUsageToSession(requestUsage, requestCost);
+      this._postStats(finalPromptTokens, finalCompletionTokens);
+    } else {
+      this._postStats(finalPromptTokens, finalCompletionTokens);
     }
     this._response = chat_response;
     this._view?.webview.postMessage({ type: 'addResponse', value: chat_response });
@@ -2105,6 +2402,10 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
           <span id="stats-used">Used: 0 (0+0)</span>
           <span class="stats-sep">|</span>
           <span id="stats-model">Model: -</span>
+          <span class="stats-sep">|</span>
+          <span id="stats-session-cost">Session Cost: n/a</span>
+          <span class="stats-sep">|</span>
+          <span id="stats-last-cost">Last Request: n/a</span>
         </div>
   
         <div id="input-wrapper">

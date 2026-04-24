@@ -205,29 +205,31 @@ export function activate(context: vscode.ExtensionContext) {
               apiUrl,
               apiKey: firstProvider.apiKey,
               apiType,
+              pricing: firstModel.pricing,
               options: {
-				...firstModel.options, // Spread operator to include all keys from options
+                ...firstModel.options, // Spread operator to include all keys from options
                 // If tools are defined at model level, include them in options for convenience
                 ...(firstModel.tools ? { tools: firstModel.tools } : {}),
                 ...(firstModel as any).reasoning_output_delta_path ? { reasoning_output_delta_path: (firstModel as any).reasoning_output_delta_path } : {},
-			  },
-			};
+              },
+            };
 		}
 	}
 	
-	provider.setSettings({
-	  selectedInsideCodeblock: config.get('selectedInsideCodeblock') || false,
-	  codeblockWithLanguageId: config.get('codeblockWithLanguageId') || false,
-	  pasteOnClick: config.get('pasteOnClick') || false,
-	  keepConversation: config.get('keepConversation') || false,
-	  timeoutLength: config.get('timeoutLength') || 60,
-	  apiUrl: activate_provider_settings.apiUrl,
-	  model: activate_provider_settings.model,
+    provider.setSettings({
+      selectedInsideCodeblock: config.get('selectedInsideCodeblock') || false,
+      codeblockWithLanguageId: config.get('codeblockWithLanguageId') || false,
+      pasteOnClick: config.get('pasteOnClick') || false,
+      keepConversation: config.get('keepConversation') || false,
+      timeoutLength: config.get('timeoutLength') || 60,
+      apiUrl: activate_provider_settings.apiUrl,
+      model: activate_provider_settings.model,
       apiType: activate_provider_settings.apiType,
-	  options: {
-		...activate_provider_settings.options, // Use spread operator to include all options
-	  },
-	});
+      pricing: activate_provider_settings.pricing,
+      options: {
+        ...activate_provider_settings.options, // Use spread operator to include all options
+      },
+    });
 
 	// Put configuration settings into the provider
 	provider.setAuthenticationInfo({
@@ -455,21 +457,23 @@ export function activate(context: vscode.ExtensionContext) {
                       apiUrl,
                       apiKey: firstProvider.apiKey,
                       apiType,
+                      pricing: firstModel.pricing,
                       options: {
-						...firstModel.options, // Use spread operator to include all options
+                        ...firstModel.options, // Use spread operator to include all options
                         ...(firstModel.tools ? { tools: firstModel.tools } : {}),
                         ...(firstModel as any).reasoning_output_delta_path ? { reasoning_output_delta_path: (firstModel as any).reasoning_output_delta_path } : {},
-					  },
-					};
+                      },
+                    };
 				}
-				provider.setSettings({
-				  apiUrl: activate_provider_settings.apiUrl,
-				  model: activate_provider_settings.model,
-				  apiType: activate_provider_settings.apiType,
-				  options: {
-					...activate_provider_settings.options, // Use spread operator to include all options
-				  },
-				});
+                provider.setSettings({
+                  apiUrl: activate_provider_settings.apiUrl,
+                  model: activate_provider_settings.model,
+                  apiType: activate_provider_settings.apiType,
+                  pricing: activate_provider_settings.pricing,
+                  options: {
+                    ...activate_provider_settings.options, // Use spread operator to include all options
+                  },
+                });
 			
 				// Put configuration settings into the provider
 				provider.setAuthenticationInfo({
