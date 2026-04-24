@@ -1479,7 +1479,7 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
     let searchPrompt = "";
     let movedInState = false;
     let requestUsage: TokenUsage | null = null;
-    let finalPromptTokens = promtNumberOfTokens;
+    let finalPromptTokens = 0;
     let finalCompletionTokens = 0;
     this._lastRequestCost = 0;
     // Local collector of streamed responses by type for this run/model
@@ -1522,6 +1522,7 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
 
     const promtNumberOfTokens = this._getMessagesNumberOfTokens();
     let full_message = "";
+    finalPromptTokens = promtNumberOfTokens;
     try {
       console.log("Creating message sender...");
 
