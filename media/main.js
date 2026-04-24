@@ -159,6 +159,13 @@
         return out.join('\n');
     }
 
+    // Backwards-compatible alias: keeps the original name while using the
+    // generic fenced-code handler that exposes the full info string (type + args)
+    // as a label and preserves search-replace:path handling.
+    function transformSearchReplaceBlocks(md) {
+        return transformFencedCodeBlocks(md);
+    }
+
     function markersToHtml(textWithMarkers) {
         // Convert our reasoning markers to colored spans, escaping all user text
         let html = '';
@@ -892,7 +899,7 @@
 
         // 1) Convert markdown to HTML for the entire chat content
         const fixed = fixCodeBlocks(response);
-        const transformedMd = transformSearchReplaceBlocks(fixed);
+        const transformedMd = transformFencedCodeBlocks(fixed);
         // Escape only literal <style> tags in prose (not in code / header)
         const escapedMd = escapeLiteralStyleTagsOutsideCodeExceptHeader(transformedMd);
         // Neutralize nested code fences so inner fences stay as text within the outer block
