@@ -38,6 +38,12 @@ const extensionConfig = {
             loader: 'ts-loader'
           }
         ]
+      },
+      {
+        test: /\.m?js$/,
+        resolve: {
+          fullySpecified: false
+        }
       }
     ]
   },

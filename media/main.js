@@ -82,6 +82,36 @@
             .replace(/'/g, '&#39;');
     }
 
+    function escapeHtmlAttribute(s) {
+        return escapeHtml(String(s));
+    }
+
+    function transformSearchReplaceBlocks(md) {
+        const lines = md.split(/\r?\n/);
+        const out = [];
+        for (let i = 0; i < lines.length; i++) {
+            const open = lines[i].match(/^(\s*)(`{3,})search-replace:(.+?)\s*$/);
+            if (!open) {
+                out.push(lines[i]);
+                continue;
+            }
+            const indent = open[1] || '';
+            const fenceLen = open[2].length;
+            const filePath = (open[3] || '').trim();
+            const body = [];
+            i++;
+            const closeRe = new RegExp('^\\s*`{' + fenceLen + ',}\\s*$');
+            while (i < lines.length && !closeRe.test(lines[i])) {
+                body.push(lines[i]);
+                i++;
+            }
+            out.push(
+                `${indent}<pre data-search-replace-path="${escapeHtmlAttribute(filePath)}"><code>${escapeHtml(body.join('\n'))}</code></pre>`
+            );
+        }
+        return out.join('\n');
+    }
+
     function markersToHtml(textWithMarkers) {
         // Convert our reasoning markers to colored spans, escaping all user text
         let html = '';
@@ -624,10 +654,16 @@
             }
             codeBlock.addEventListener('click', function (e) {
                 e.preventDefault();
-                vscode.postMessage({
+                const pre = this.closest('pre');
+                const searchReplacePath = pre && pre.dataset ? pre.dataset.searchReplacePath : '';
+                const payload = {
                     type: 'codeSelected',
                     value: this.innerText
-                });
+                };
+                if (searchReplacePath) {
+                    payload.searchReplacePath = searchReplacePath;
+                }
+                vscode.postMessage(payload);
             });
     
             const d = document.createElement('div');
@@ -809,8 +845,9 @@
 
         // 1) Convert markdown to HTML for the entire chat content
         const fixed = fixCodeBlocks(response);
+        const transformedMd = transformSearchReplaceBlocks(fixed);
         // Escape only literal <style> tags in prose (not in code / header)
-        const escapedMd = escapeLiteralStyleTagsOutsideCodeExceptHeader(fixed);
+        const escapedMd = escapeLiteralStyleTagsOutsideCodeExceptHeader(transformedMd);
         // Neutralize nested code fences so inner fences stay as text within the outer block
         const normalizedMd = preprocessNestedCodeFences(escapedMd);
 

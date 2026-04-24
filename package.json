@@ -2,7 +2,7 @@
   "name": "devmate-ai-chat",
   "displayName": "DevMate AI Chat",
   "description": "Use multiple llm providers and specific models right inside the IDE to enhance and automate your coding with AI-powered assistance",
-  "version": "1.1.12",
+  "version": "1.1.15",
   "publisher": "diegoalfonsoaguilarcardona",
   "icon": "resources/extensionIcon.png",
   "license": "MIT",
@@ -40,6 +40,7 @@
     "onCommand:devmate.addFileReferenceToChat",
     "onCommand:devmate.appendSelectionMarkdownAsChat",
     "onCommand:devmate.appendSelectionReferencesAsChat",
+    "onCommand:devmate.importSelectionJsonAsChat",
     "onCommand:devmate.pasteLastResponses"
   ],
   "main": "./dist/extension.js",
@@ -88,6 +89,10 @@
       {
         "command": "devmate.appendSelectionMarkdownAsChat",
         "title": "Append Markdown selection to DevMate AI Chat conversation"
+      },
+      {
+        "command": "devmate.importSelectionJsonAsChat",
+        "title": "Append JSON selection to DevMate AI Chat conversation"
       },
       {
         "command": "devmate.appendSelectionReferencesAsChat",
@@ -161,6 +166,11 @@
           "group": "devmate-menu-group@8"
         },
         {
+          "command": "devmate.importSelectionJsonAsChat",
+          "when": "editorHasSelection",
+          "group": "devmate-menu-group@8"
+        },
+        {
           "command": "devmate.appendSelectionMarkdownAsChat",
           "when": "editorHasSelection",
           "group": "devmate-menu-group@8"
@@ -219,6 +229,10 @@
         },
         {
           "command": "devmate.appendSelectionMarkdownAsChat",
+          "when": "editorHasSelection"
+        },
+        {
+          "command": "devmate.importSelectionJsonAsChat",
           "when": "editorHasSelection"
         },
         {
@@ -473,6 +487,7 @@
   },
   "dependencies": {
     "@types/node-fetch": "^2.6.11",
+    "diff-apply": "^1.0.6",
     "js-tiktoken": "^1.0.10",
     "js-yaml": "^4.1.0",
     "node-fetch": "^3.3.2",

@@ -341,6 +341,47 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('devmate.pasteLastResponses', () => provider.pasteLastResponses()),
         vscode.commands.registerCommand('devmate.appendSelectionMarkdownAsChat', () => provider.appendSelectionMarkdownAsChat()),
         vscode.commands.registerCommand('devmate.appendSelectionAsChat', () => provider.appendSelectionAsChat()),
+        vscode.commands.registerCommand('devmate.importSelectionJsonAsChat', async () => {
+          const activeEditor = vscode.window.activeTextEditor;
+          if (!activeEditor) {
+            vscode.window.showErrorMessage('No active text editor with a selection!');
+            return;
+          }
+          const selection = activeEditor.selection;
+          if (selection.isEmpty) {
+            vscode.window.showErrorMessage('No text selected!');
+            return;
+          }
+
+          const selectedText = activeEditor.document.getText(selection);
+          try {
+            const parsed = JSON.parse(selectedText) as { messages?: Array<{ role?: string; content?: unknown }> };
+            if (!parsed || !Array.isArray(parsed.messages)) {
+              throw new Error('Selected JSON does not contain a valid messages array.');
+            }
+
+            const importedMessages = parsed.messages
+              .filter((msg): msg is { role: string; content: string } =>
+                !!msg &&
+                typeof msg.role === 'string' &&
+                ['system', 'user', 'assistant'].includes(msg.role) &&
+                typeof msg.content === 'string'
+              )
+              .map((msg) => ({
+                role: msg.role as 'system' | 'user' | 'assistant',
+                content: msg.content,
+                selected: true,
+                collapsed: false
+              }));
+
+            if (!importedMessages.length) {
+              throw new Error('No valid system, user, or assistant messages were found.');
+            }
+            provider.importMessages(importedMessages, 'append');
+          } catch (err: any) {
+            vscode.window.showErrorMessage('Failed to import JSON selection as chat: ' + (err?.message || String(err)));
+          }
+        }),        
         vscode.commands.registerCommand('devmate.appendSelectionReferencesAsChat', async () => {
           const activeEditor = vscode.window.activeTextEditor;
           if (!activeEditor) { vscode.window.showErrorMessage('No active text editor with a selection!'); return; }

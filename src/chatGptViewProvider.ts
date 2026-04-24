@@ -6,6 +6,7 @@ import * as yaml from 'js-yaml';
 import OpenAI from "openai";
 import { encodingForModel } from "js-tiktoken";
 import { AuthInfo, Settings, Message, Provider, Prompt, UserMessage, SystemMessage, AssistantMessage, BASE_URL } from './types';
+import { newUnifiedDiffStrategy } from 'diff-apply';
 import { ChatCompletionContentPart, ChatCompletionContentPartImage, ChatCompletionContentPartText } from 'openai/resources/chat/completions';
 import { TextDecoder } from 'util';
 
@@ -132,16 +133,20 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
           {
             // If the clicked code is a diff/patch, ask to apply it; otherwise keep the paste behavior
             const code = String(data.value || '');
-            if (this.isLikelyDiffContent(code)) {
+            const searchReplacePath = typeof data.searchReplacePath === 'string' ? data.searchReplacePath : undefined;
+            if (searchReplacePath || this.isLikelyDiffContent(code)) {
               const choice = await vscode.window.showInformationMessage(
-                'Detected diff content from chat. Do you want to apply this patch to the workspace?',
+                'Detected patch content from chat. Do you want to apply this patch to the workspace?',
                 { modal: true },
                 'Apply Patch',
                 'Insert as Text',
                 'Cancel'
               );
               if (choice === 'Apply Patch') {
-                const res = await this.applyPatchText(code);
+                const patchText = searchReplacePath
+                  ? `\`\`\`search-replace:${searchReplacePath}\n${code}\n\`\`\``
+                  : code;
+                const res = await this.applyPatchText(patchText);
                 if (res.success) {
                   vscode.window.showInformationMessage(`Patch applied: ${res.details}`);
                 } else {
@@ -584,6 +589,28 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
       console.error("Failed to append selection as chat:", error);
       vscode.window.showErrorMessage('Failed to append selection as chat: ' + error);
     }
+  }
+
+  public importMessages(messages: Message[], mode: 'replace' | 'append' = 'replace') {
+    const normalized = messages.map((msg: any) => {
+      const selected = ('selected' in msg) ? !!msg.selected : true;
+      const collapsed = ('collapsed' in msg) ? !!msg.collapsed : false;
+      const moveToEnd = ('moveToEnd' in msg) ? !!msg.moveToEnd : false;
+      return { ...msg, selected, collapsed, moveToEnd } as Message;
+    });
+
+    if (mode === 'append') {
+      if (!this._messages) this._messages = [];
+      this._messages.push(...normalized);
+    } else {
+      this._messages = normalized;
+    }
+
+    const chat_response = this._updateChatMessages(
+      this._getMessagesNumberOfTokens(),
+      0
+    );
+    this._view?.webview.postMessage({ type: 'addResponse', value: chat_response });
   }
 
   public async appendSelectionMarkdownAsChat() {
@@ -2457,10 +2484,11 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
 
   private isLikelyDiffContent(s: string): boolean {
     if (!s) return false;
-    // Unified diff markers or OpenAI Patch or EditBlock
+    // Unified diff markers or OpenAI Patch or EditBlock/search-replace block
     return (
       /^\s*---\s+(?:a\/|\/dev\/null|[^\s])/m.test(s) ||
       /^\s*\*\*\*\s+Begin Patch/m.test(s) ||
+      /^\s*`{3,}search-replace:/m.test(s) ||
       /^(###\s+FILE: )/m.test(s) ||
       /^\s*<<<<<<<\s*SEARCH[\s\S]*?>>>>>>>\s*REPLACE/m.test(s)
     );
@@ -2471,10 +2499,11 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
       // Extract one or more patch blocks we know how to process
       const unifiedBlocks = this.extractUnifiedDiffBlocks(rawText);
       const openAiBlocks = this.extractOpenAIPatchBlocks(rawText);
-      const editBlocks = this.extractEditBlocks(rawText);
+      const searchReplaceBlocks = this.extractSearchReplaceBlocks(rawText);
+      const editBlocks = searchReplaceBlocks.length ? [] : this.extractEditBlocks(rawText);
 
       let appliedFiles = 0;
-      let appliedVia = { udiff: 0, openai: 0, edit: 0, fuzzy: 0, whitespace: 0 };
+      let appliedVia = { udiff: 0, openai: 0, searchReplace: 0, edit: 0, fuzzy: 0, whitespace: 0 };
 
       // Apply unified diffs first
       for (const block of unifiedBlocks) {
@@ -2496,6 +2525,16 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
         appliedVia.openai += result.count;
       }
 
+      // Apply fenced search-replace:path blocks
+      if (searchReplaceBlocks.length > 0) {
+        const result = await this.applySearchReplaceBlocks(searchReplaceBlocks);
+        if (!result.success) {
+          return { success: false, details: `[search-replace] ${result.details}` };
+        }
+        appliedFiles += result.count;
+        appliedVia.searchReplace += result.count;
+      }
+
       // Apply EditBlock SEARCH/REPLACE (possibly across files)
       for (const eb of editBlocks) {
         const result = await this.applyEditBlock(eb);
@@ -2511,7 +2550,7 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
       }
 
       const detail = `changed ${appliedFiles} file(s) ` +
-        `(udiff:${appliedVia.udiff}, openai:${appliedVia.openai}, edit:${appliedVia.edit},` +
+        `(udiff:${appliedVia.udiff}, openai:${appliedVia.openai}, searchReplace:${appliedVia.searchReplace}, edit:${appliedVia.edit},` +
         ` whitespace:${appliedVia.whitespace}, fuzzy:${appliedVia.fuzzy})`;
       return { success: true, details: detail };
     } catch (e: any) {
@@ -2594,6 +2633,112 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
       if (search.length > 0) out.push({ file, search, replace });
     }
     return out;
+  }
+
+  private parseSearchReplaceBody(body: string): { search: string; replace: string } | null {
+    const normalized = body.replace(/\r\n/g, '\n').trimEnd();
+    const match = normalized.match(/^<<<<<<< SEARCH\n([\s\S]*?)\n=======\n([\s\S]*?)\n>>>>>>> REPLACE$/);
+    if (!match) return null;
+    return { search: match[1], replace: match[2] };
+  }
+
+  private extractSearchReplaceBlocks(text: string, fallbackPath?: string): Array<{ path: string; search: string; replace: string }> {
+    const normalized = text.replace(/\r\n/g, '\n');
+    const lines = normalized.split('\n');
+    const out: Array<{ path: string; search: string; replace: string }> = [];
+    for (let i = 0; i < lines.length; i++) {
+      const open = lines[i].match(/^\s*(`{3,})search-replace:(.+?)\s*$/);
+      if (!open) continue;
+      const fenceLen = open[1].length;
+      const filePath = (open[2] || '').trim();
+      const closeRe = new RegExp('^\\s*`{' + fenceLen + ',}\\s*$');
+      const body: string[] = [];
+      i++;
+      while (i < lines.length && !closeRe.test(lines[i])) {
+        body.push(lines[i]);
+        i++;
+      }
+      const parsed = this.parseSearchReplaceBody(body.join('\n'));
+      if (parsed && filePath) {
+        out.push({ path: filePath, ...parsed });
+      }
+    }
+    if (!out.length && fallbackPath) {
+      const parsed = this.parseSearchReplaceBody(normalized.trim());
+      if (parsed) {
+        out.push({ path: fallbackPath, ...parsed });
+      }
+    }
+    return out;
+  }
+
+  private async applySearchReplaceBlocks(blocks: Array<{ path: string; search: string; replace: string }>): Promise<{ success: boolean; details: string; count: number }> {
+    if (!blocks.length) {
+      return { success: false, details: 'No SEARCH/REPLACE blocks found.', count: 0 };
+    }
+    const originalByPath = new Map<string, string | null>();
+    const currentByPath = new Map<string, string>();
+    const changedPaths = new Set<string>();
+
+    for (const block of blocks) {
+      const relPath = block.path.replace(/^[.][\\/]/, '').replace(/\\/g, '/');
+      let currentText: string;
+      if (currentByPath.has(relPath)) {
+        currentText = currentByPath.get(relPath)!;
+      } else {
+        const existing = await this.readWorkspaceFileOptional(relPath);
+        originalByPath.set(relPath, existing);
+        currentText = existing ?? '';
+      }
+
+      let nextText = currentText;
+      if (block.search === '') {
+        if ((originalByPath.get(relPath) ?? null) !== null && currentText !== '') {
+          return { success: false, details: `${relPath}: empty SEARCH is only supported when creating a new empty file.`, count: 0 };
+        }
+        nextText = block.replace;
+      } else {
+        const firstIdx = currentText.indexOf(block.search);
+        if (firstIdx !== -1) {
+          const secondIdx = currentText.indexOf(block.search, firstIdx + block.search.length);
+          if (secondIdx !== -1) {
+            return { success: false, details: `${relPath}: SEARCH block matched multiple times.`, count: 0 };
+          }
+          nextText = currentText.slice(0, firstIdx) + block.replace + currentText.slice(firstIdx + block.search.length);
+        } else {
+          const currentLines = currentText.split('\n');
+          const searchLines = block.search.split('\n');
+          const matches = this.findAllSubsequenceAdv(currentLines, searchLines, { ignoreWs: true, trimRight: true });
+          if (matches.length !== 1) {
+            return { success: false, details: `${relPath}: SEARCH block not found uniquely.`, count: 0 };
+          }
+          const replaceLines = block.replace.split('\n');
+          nextText = [
+            ...currentLines.slice(0, matches[0]),
+            ...replaceLines,
+            ...currentLines.slice(matches[0] + searchLines.length)
+          ].join('\n');
+        }
+      }
+
+      currentByPath.set(relPath, nextText);
+      if (nextText !== currentText) {
+        changedPaths.add(relPath);
+      }
+    }
+
+    for (const [relPath, nextText] of currentByPath.entries()) {
+      const originalText = originalByPath.get(relPath);
+      if ((originalText ?? '') !== nextText || changedPaths.has(relPath)) {
+        await this.writeWorkspaceFile(relPath, nextText);
+      }
+    }
+
+    return {
+      success: true,
+      details: `Applied ${blocks.length} SEARCH/REPLACE block(s) across ${changedPaths.size} file(s).`,
+      count: changedPaths.size
+    };
   }
 
   private normalizeWs(s: string): string {
@@ -3018,16 +3163,9 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
     const files = this.parseUnifiedDiff(diffBlock);
     if (!files.length) return { success: false, details: 'Empty or invalid unified diff.', count: 0 };
 
+    const strategy = newUnifiedDiffStrategy.create(0.8);
     let changed = 0;
-    const rejections: Array<{
-      path: string;
-      hunkHeader: string;
-      hunkText: string[];
-      reason: string;
-    }> = [];
-
-    const stringifyHunk = (filePath: string, header: string, lines: string[]) =>
-      `--- a/${filePath}\n+++ b/${filePath}\n${header}\n${lines.join('\n')}\n`;
+    const errors: string[] = [];
 
     for (const file of files) {
       const oldP = file.oldPath;
@@ -3035,16 +3173,16 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
 
       // Added file
       if (oldP === '/dev/null' && newP && newP !== '/dev/null') {
-        let contentLines: string[] = [];
+        const contentLines: string[] = [];
         for (const h of file.hunks) {
           for (const l of h.lines) {
-            if (l.startsWith('+')) contentLines.push(l.slice(1));
-            else if (l.startsWith(' ')) contentLines.push(l.slice(1));
+            if (l.startsWith('+')) { contentLines.push(l.slice(1)); }
+            else if (l.startsWith(' ')) { contentLines.push(l.slice(1)); }
           }
         }
         await this.writeWorkspaceFile(newP, contentLines.join('\n'));
         changed++;
-        if (counters) counters.udiff++;
+        if (counters) { counters.udiff++; }
         continue;
       }
 
@@ -3052,101 +3190,40 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
       if (newP === '/dev/null' && oldP && oldP !== '/dev/null') {
         await this.deleteWorkspaceFile(oldP);
         changed++;
-        if (counters) counters.udiff++;
+        if (counters) { counters.udiff++; }
         continue;
       }
 
       const targetPath = newP || oldP;
       if (!targetPath) {
-        rejections.push({
-          path: '(unknown)',
-          hunkHeader: '',
-          hunkText: [],
-          reason: 'Missing target path in diff.'
-        });
+        errors.push('Missing target path in diff.');
         continue;
       }
 
-      const before = (await this.readWorkspaceFileOptional(targetPath)) ?? '';
-      let cur = before;
-      let anyHunkApplied = false;
-      let fileFailed = false;
-      let localAppliedVia: Array<'exact' | 'whitespace' | 'indent' | 'anchor' | 'ordered' | 'insert' | 'delete' | 'fuzzy'> = [];
-      for (const h of file.hunks) {
-        // Prefer hinted localized application using hunk header oldStart line
-        // number when the header is well‑formed. If the header is missing or
-        // malformed (very common with LLM‑generated diffs that just emit "@@"
-        // or bogus numbers), we *skip* using any hint and rely entirely on
-        // our fuzzy/context matching instead of rejecting the hunk.
-        let res:
-          { ok: boolean; text?: string; via?: any; note?: string } = { ok: false, note: 'uninitialized' };
-        let approxLine: number | null = null;
-        try {
-          approxLine = this.parseOldStartFromHunkHeader(h.header);
-        } catch {
-          approxLine = null;
-        }
-        if (approxLine != null) {
-          res = this.applyHunkToTextWithHint(cur, h.lines, {
-            approxIndex: Math.max(0, approxLine - 1)
-          });
-        } else {
-          // Header is unusable; fall back to global fuzzy application that
-          // ignores header line/length data entirely.
-          res = this.applyHunkToTextWithHint(cur, h.lines, { approxIndex: undefined });
-        }
-        if (!res.ok || !res.text) {
-          rejections.push({
-            path: targetPath,
-            hunkHeader: h.header,
-            hunkText: h.lines,
-            reason: res.note ? res.note : 'All strategies failed'
-          });
-          fileFailed = true;
-          break; // strict per-file: don't write partial results
-        }
-        cur = res.text;
-        anyHunkApplied = true;
-        if (res.via) localAppliedVia.push(res.via);
+      const originalContent = (await this.readWorkspaceFileOptional(targetPath)) ?? '';
+
+      // Reconstruct a per-file unified diff to pass to diff-apply
+      const perFileDiff =
+        `--- a/${targetPath}\n+++ b/${targetPath}\n` +
+        file.hunks.map(h => `${h.header}\n${h.lines.join('\n')}`).join('\n') + '\n';
+
+      const result = await strategy.applyDiff({ originalContent, diffContent: perFileDiff });
+
+      if (!result.success) {
+        errors.push(`${targetPath}: ${result.error ?? 'Unknown error'}`);
+        continue;
       }
 
-      if (!fileFailed && anyHunkApplied && cur !== before) {
-        await this.writeWorkspaceFile(targetPath, cur);
-        changed++;
-        if (counters) {
-          counters.udiff++;
-          if (localAppliedVia.includes('whitespace') || localAppliedVia.includes('indent')) counters.whitespace++;
-          if (localAppliedVia.includes('fuzzy') || localAppliedVia.includes('anchor') || localAppliedVia.includes('ordered')) counters.fuzzy++;
-        }
-      }
+      await this.writeWorkspaceFile(targetPath, result.content);
+      changed++;
+      if (counters) { counters.udiff++; }
     }
 
-    // Write .rej files for any rejections
-    if (rejections.length) {
-      // Group by path
-      const map = new Map<string, Array<{ hunkHeader: string; hunkText: string[]; reason: string }>>();
-      for (const r of rejections) {
-        if (!map.has(r.path)) map.set(r.path, []);
-        map.get(r.path)!.push({ hunkHeader: r.hunkHeader, hunkText: r.hunkText, reason: r.reason });
-      }
-      for (const [p, items] of map.entries()) {
-        const rejPath = `${p}.rej`;
-        const body = items.map(it => {
-          return `# REJECTED HUNK (reason: ${it.reason})\n${stringifyHunk(p, it.hunkHeader, it.hunkText)}\n`;
-        }).join('\n');
-        try {
-          await this.writeWorkspaceFile(rejPath, body);
-        } catch (e) {
-          // ignore write errors
-        }
-      }
+    if (changed === 0 && errors.length > 0) {
+      return { success: false, details: errors.join('; '), count: 0 };
     }
-
-    if (changed === 0 && rejections.length > 0) {
-      return { success: false, details: `No hunks applied. ${rejections.length} rejected. See *.rej files.`, count: 0 };
-    }
-    if (rejections.length > 0) {
-      return { success: true, details: `Applied with ${rejections.length} rejected hunk(s). See *.rej files.`, count: changed };
+    if (errors.length > 0) {
+      return { success: true, details: `Applied with errors: ${errors.join('; ')}`, count: changed };
     }
     return { success: true, details: `Applied ${changed} file(s)`, count: changed };
   }

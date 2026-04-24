@@ -1,4 +1,4 @@
-import { ChatCompletionAssistantMessageParam, ChatCompletionContentPart, ChatCompletionContentPartImage, ChatCompletionContentPartText, ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam } from 'openai/resources/chat/completions';
+import { ChatCompletionAssistantMessageParam, ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam } from 'openai/resources/chat/completions';
 export type AuthInfo = { apiKey?: string, apiUrl?: string };
 export type Settings = {
   selectedInsideCodeblock?: boolean;
@@ -46,6 +46,20 @@ export interface Prompt {
   name: string;
   prompt: string;
 }
+export interface ExportGptMessage {
+  chat_id?: string;
+  msg_id?: string;
+  created_at?: string | null;
+  role: string;
+  content: string;
+  content_type?: string;
+  attachments?: any[];
+}
+
+export interface ExportGptConversation {
+  messages?: ExportGptMessage[];
+}
+
 
 export interface SystemMessage extends ChatCompletionSystemMessageParam {
   selected?: boolean;  // Additional property specific to Message
