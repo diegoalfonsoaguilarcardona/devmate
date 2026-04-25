@@ -30,6 +30,8 @@
     const collapseState = new Map(); // key: "messageIndex", value: boolean (true = collapsed)
     // Remember per-message "move ref to end" toggle
     const moveRefState = new Map(); // key: "messageIndex", value: boolean
+    // Remember per-message per-code-block selection state (true = send compact reference)
+    const codeBlockSelectionState = new Map(); // key: "messageIndex", value: boolean[]
     
     /**
      * Build a short preview from the message content's text
@@ -357,6 +359,7 @@
                 // Clear remembered collapse/expand states (e.g., on chat reset)
                 collapseState.clear();
                 moveRefState.clear();
+                codeBlockSelectionState.clear();
                 break;
             }
             case "setCollapsedForIndex": {
@@ -372,6 +375,16 @@
                 const idx = message.index;
                 const val = !!message.value;
                 moveRefState.set(String(idx), val);
+                break;
+            }
+            case "setCodeBlockSelectionsForIndex": {
+                const idx = message.index;
+                const values = Array.isArray(message.value)
+                    ? Array.from({ length: message.value.length }, (_, index) => !!message.value[index])
+                    : [];
+                if (idx !== undefined && idx !== null) {
+                    codeBlockSelectionState.set(String(idx), values);
+                }
                 break;
             }
             case "streamStart": {
@@ -612,6 +625,56 @@
         }
     }
 
+    function decorateCodeBlocks(container, msgKey) {
+        if (!container || msgKey === null || msgKey === undefined) return;
+        const key = String(msgKey);
+        const codeBlocks = Array.from(container.querySelectorAll('pre'));
+
+        codeBlocks.forEach((pre, blockIndex) => {
+            const toolbar = document.createElement('div');
+            toolbar.className = 'code-block-toolbar';
+
+            const label = document.createElement('label');
+            label.className = 'code-block-toggle-label';
+
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.className = 'code-block-toggle';
+
+            const saved = codeBlockSelectionState.get(key);
+            checkbox.checked = Array.isArray(saved) ? !!saved[blockIndex] : false;
+            checkbox.addEventListener('change', function (e) {
+                e.stopPropagation();
+                const next = Array.isArray(codeBlockSelectionState.get(key))
+                    ? [...codeBlockSelectionState.get(key)]
+                    : [];
+                for (let i = 0; i < blockIndex; i++) {
+                    if (typeof next[i] !== 'boolean') next[i] = false;
+                }
+                next[blockIndex] = !!this.checked;
+                codeBlockSelectionState.set(key, next);
+                vscode.postMessage({
+                    type: 'codeBlockSelectionChanged',
+                    index: parseInt(key, 10),
+                    codeBlockIndex: blockIndex,
+                    checked: !!this.checked
+                });
+            });
+
+            const text = document.createElement('span');
+            text.textContent = 'Reference this code block in requests';
+
+            label.appendChild(checkbox);
+            label.appendChild(text);
+            toolbar.appendChild(label);
+
+            const parent = pre.parentElement;
+            if (parent) {
+                parent.insertBefore(toolbar, pre);
+            }
+        });
+    }
+
     // Render a single message block into its own Shadow DOM and re-bind interactions.
     function renderMessageBlock(container, blockHtml) {
         const host = document.createElement('div');
@@ -684,6 +747,25 @@
                 border-left: 2px solid var(--vscode-editorGroup-border);
                 padding-left: .5rem;
                 margin: .25rem 0 .5rem .25rem;
+            }
+            .code-block-toolbar {
+                display: flex;
+                justify-content: flex-end;
+                margin: 0 0 .25rem 0;
+            }
+            .code-block-toggle-label {
+                display: inline-flex;
+                align-items: center;
+                gap: .35rem;
+                font-size: 0.75rem;
+                color: var(--vscode-descriptionForeground);
+                cursor: pointer;
+                user-select: none;
+            }
+            .code-block-toggle {
+                width: 1rem;
+                height: 1rem;
+                margin: 0;
             }
         `;
     
@@ -785,7 +867,9 @@
             previewDiv.className = 'message-preview';
             previewDiv.textContent = makePreviewText(contentDiv, 3, 300);
             root.insertBefore(previewDiv, contentDiv);
-    
+
+            decorateCodeBlocks(contentDiv, msgKey);
+
             // Toggle button
             const btn = document.createElement('button');
             btn.className = 'collapse-toggle';

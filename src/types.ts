@@ -112,18 +112,21 @@ export interface SystemMessage extends ChatCompletionSystemMessageParam {
   selected?: boolean;  // Additional property specific to Message
   collapsed?: boolean; // UI-only: whether to render collapsed by default
   moveToEnd?: boolean; // UI-only: move file reference to end before each send (only meaningful for file reference-style content)
+  codeBlockSelections?: boolean[]; // UI-only: per-code-block toggle; true means send a compact reference instead of the full block
 }
 
 export interface UserMessage extends ChatCompletionUserMessageParam {
   selected?: boolean;  // Additional property specific to Message
   collapsed?: boolean; // UI-only: whether to render collapsed by default
   moveToEnd?: boolean; // UI-only: move file reference to end before each send (only meaningful for file reference-style content)
+  codeBlockSelections?: boolean[]; // UI-only: per-code-block toggle; true means send a compact reference instead of the full block
 }
 
 export interface AssistantMessage extends ChatCompletionAssistantMessageParam {
   selected?: boolean;  // Additional property specific to Message
   collapsed?: boolean; // UI-only: whether to render collapsed by default
   moveToEnd?: boolean; // UI-only: move file reference to end before each send (only meaningful for file reference-style content)
+  codeBlockSelections?: boolean[]; // UI-only: per-code-block toggle; true means send a compact reference instead of the full block
 }
 
 export type Message =

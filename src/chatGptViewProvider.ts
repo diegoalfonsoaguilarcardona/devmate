@@ -286,6 +286,30 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
             }
             break;
           }
+        case 'codeBlockSelectionChanged':
+          {
+            const index = Number(data.index);
+            const codeBlockIndex = Number(data.codeBlockIndex);
+            const checked = !!data.checked;
+            if (
+              Number.isInteger(index)
+              && Number.isInteger(codeBlockIndex)
+              && this._messages
+              && index >= 0
+              && index < this._messages.length
+            ) {
+              const message: any = this._messages[index];
+              const nextSelections = Array.isArray(message.codeBlockSelections) ? [...message.codeBlockSelections] : [];
+              for (let i = 0; i < codeBlockIndex; i++) {
+                if (typeof nextSelections[i] !== 'boolean') nextSelections[i] = false;
+              }
+              nextSelections[codeBlockIndex] = checked;
+              message.codeBlockSelections = this.normalizeCodeBlockSelections(nextSelections);
+            } else {
+              console.error('codeBlockSelectionChanged: Index is out of bounds or invalid.');
+            }
+            break;
+          }
           case "providerModelChanged":
           {
             const providerIndex = data.providerIndex;
@@ -484,6 +508,8 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
         const { role, content, selected, collapsed } = m as any;
         const out: any = { role, content, selected, collapsed: !!collapsed };
         if ((m as any).moveToEnd) out.moveToEnd = true;
+        const codeBlockSelections = this.normalizeCodeBlockSelections((m as any).codeBlockSelections);
+        if (codeBlockSelections.length) out.codeBlockSelections = codeBlockSelections;
         return out;
       });
 
@@ -543,7 +569,8 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
       const normalized = parsedMessages.map((msg: any) => {
         const collapsed = ('collapsed' in msg) ? !!msg.collapsed : false;
         const moveToEnd = ('moveToEnd' in msg) ? !!msg.moveToEnd : false;
-        return { ...msg, collapsed, moveToEnd };
+        const codeBlockSelections = this.normalizeCodeBlockSelections((msg as any).codeBlockSelections);
+        return { ...msg, collapsed, moveToEnd, codeBlockSelections };
       });
 
       // If valid, update the _messages array with new data
@@ -599,7 +626,8 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
         const selected = ('selected' in msg) ? !!msg.selected : true;
         const collapsed = ('collapsed' in msg) ? !!msg.collapsed : false;
         const moveToEnd = ('moveToEnd' in msg) ? !!msg.moveToEnd : false;
-        return { ...msg, selected, collapsed, moveToEnd } as Message;
+        const codeBlockSelections = this.normalizeCodeBlockSelections((msg as any).codeBlockSelections);
+        return { ...msg, selected, collapsed, moveToEnd, codeBlockSelections } as Message;
       });
 
       // Append to the existing _messages
@@ -623,7 +651,8 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
       const selected = ('selected' in msg) ? !!msg.selected : true;
       const collapsed = ('collapsed' in msg) ? !!msg.collapsed : false;
       const moveToEnd = ('moveToEnd' in msg) ? !!msg.moveToEnd : false;
-      return { ...msg, selected, collapsed, moveToEnd } as Message;
+      const codeBlockSelections = this.normalizeCodeBlockSelections((msg as any).codeBlockSelections);
+      return { ...msg, selected, collapsed, moveToEnd, codeBlockSelections } as Message;
     });
 
     if (mode === 'append') {
@@ -752,15 +781,165 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
 
   }
 
-  private _getMessagesNumberOfTokens() {
+  private normalizeCodeBlockSelections(value: any): boolean[] {
+    if (!Array.isArray(value)) return [];
+    return Array.from({ length: value.length }, (_unused, index) => !!value[index]);
+  }
+
+  private buildCodeBlockReferenceSummary(infoString: string, bodyLines: string[], codeBlockIndex: number): string {
+    const label = infoString.trim() || 'text';
+    const normalizedBodyLines = [...bodyLines];
+    while (normalizedBodyLines.length > 0 && normalizedBodyLines[normalizedBodyLines.length - 1] === '') {
+      normalizedBodyLines.pop();
+    }
+    const previewLines = normalizedBodyLines.slice(0, 3);
+    const hasMore = normalizedBodyLines.length > previewLines.length;
+    const omittedCount = Math.max(normalizedBodyLines.length - previewLines.length, 0);
+    const summaryLines = [
+      `[Code block reference #${codeBlockIndex + 1}; type: ${label}; ${normalizedBodyLines.length} line(s)]`,
+      `\`\`\`${label}`,
+      ...previewLines,
+      ...(hasMore ? ['...'] : []),
+      '\`\`\`'
+    ];
+    if (hasMore) {
+      summaryLines.push(`[${omittedCount} more line(s) omitted from this request; full block remains visible in chat.]`);
+    }
+    return summaryLines.join('\n');
+  }
+
+  private summarizeSelectedCodeBlocksInString(
+    input: string,
+    selections: boolean[],
+    startIndex = 0
+  ): { text: string; nextIndex: number } {
+    if (!input) return { text: input, nextIndex: startIndex };
+    if (!Array.isArray(selections) || !selections.some(Boolean)) {
+      return { text: input, nextIndex: startIndex };
+    }
+
+    const lines = input.replace(/\r\n/g, '\n').split('\n');
+    const out: string[] = [];
+    let inFence = false;
+    let fenceChar = '';
+    let fenceLen = 0;
+    let fenceInfo = '';
+    let openLine = '';
+    let fenceBody: string[] = [];
+    let blockIndex = startIndex;
+
+    const flushFence = (closeLine: string) => {
+      if (selections[blockIndex]) {
+        out.push(this.buildCodeBlockReferenceSummary(fenceInfo, fenceBody, blockIndex));
+      } else {
+        out.push(openLine);
+        out.push(...fenceBody);
+        out.push(closeLine);
+      }
+      blockIndex++;
+      inFence = false;
+      fenceChar = '';
+      fenceLen = 0;
+      fenceInfo = '';
+      openLine = '';
+      fenceBody = [];
+    };
+
+    for (const line of lines) {
+      if (!inFence) {
+        const open = line.match(/^\s*(`{3,}|~{3,})(.*)$/);
+        if (!open) {
+          out.push(line);
+          continue;
+        }
+        inFence = true;
+        fenceChar = open[1][0];
+        fenceLen = open[1].length;
+        fenceInfo = (open[2] || '').trim();
+        openLine = line;
+        fenceBody = [];
+        continue;
+      }
+
+      const closeRe = new RegExp('^\\s*' + fenceChar + '{' + fenceLen + ',}\\s*$');
+      if (closeRe.test(line)) {
+        flushFence(line);
+        continue;
+      }
+      fenceBody.push(line);
+    }
+
+    if (inFence) {
+      if (selections[blockIndex]) {
+        out.push(this.buildCodeBlockReferenceSummary(fenceInfo, fenceBody, blockIndex));
+      } else {
+        out.push(openLine);
+        out.push(...fenceBody);
+      }
+      blockIndex++;
+    }
+
+    return { text: out.join('\n'), nextIndex: blockIndex };
+  }
+
+  private applyCodeBlockSelectionsToMessages(msgs: ReadonlyArray<Message>): Message[] {
+    return msgs.map((msg) => {
+      const selections = this.normalizeCodeBlockSelections((msg as any).codeBlockSelections);
+      if (!selections.length || !selections.some(Boolean)) {
+        return msg;
+      }
+
+      if (typeof msg.content === 'string') {
+        const summarized = this.summarizeSelectedCodeBlocksInString(msg.content, selections).text;
+        return { ...msg, content: summarized } as Message;
+      }
+
+      if (Array.isArray(msg.content)) {
+        let blockIndex = 0;
+        const newParts = msg.content.map((part) => {
+          if (this.isChatCompletionContentPartText(part)) {
+            const result = this.summarizeSelectedCodeBlocksInString(part.text, selections, blockIndex);
+            blockIndex = result.nextIndex;
+            return { ...part, text: result.text };
+          }
+          return part;
+        });
+        return { ...msg, content: newParts } as Message;
+      }
+
+      return msg;
+    });
+  }
+
+  private _messageContentToTokenString(content: any): string {
+    if (typeof content === 'string') {
+      return content;
+    }
+
+    if (Array.isArray(content)) {
+      return content.map((part) => {
+        if (this.isChatCompletionContentPartText(part)) {
+          return part.text;
+        }
+        if (this.isChatCompletionContentPartImage(part)) {
+          return `[image:${part.image_url.url}]`;
+        }
+        return this.safeStringify(part, 500);
+      }).join('\n');
+    }
+
+    return this.safeStringify(content, 1000);
+  }
+
+  private _getMessagesNumberOfTokens(messages?: ReadonlyArray<Message>) {
 
     let full_promt = "";
-    if (this._messages) {
-      for (const message of this._messages) {
-        if (message.selected) {
-          full_promt += "\n# <u>" + message.role.toUpperCase() + "</u>:\n" + message.content;
-        }
+    const sourceMessages = messages || this._messages || [];
+    for (const message of sourceMessages) {
+      if ((message as any).selected === false) {
+        continue;
       }
+      full_promt += "\n# <u>" + message.role.toUpperCase() + "</u>:\n" + this._messageContentToTokenString(message.content);
     }
 
     const tokenList = this._enc.encode(full_promt);
@@ -1098,15 +1277,12 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
         if ((m as any).collapsed) {
           this._view?.webview.postMessage({ type: 'setCollapsedForIndex', index: idx });
         }
-      });
-    }
-
-    // Inform the webview about "move reference to end" toggles so it can render checked states
-    if (this._messages && this._messages.length > 0) {
-      this._messages.forEach((m, idx) => {
-        if ((m as any).moveToEnd) {
-          this._view?.webview.postMessage({ type: 'setMoveRefToEndForIndex', index: idx, value: true });
-        }
+        this._view?.webview.postMessage({ type: 'setMoveRefToEndForIndex', index: idx, value: !!(m as any).moveToEnd });
+        this._view?.webview.postMessage({
+          type: 'setCodeBlockSelectionsForIndex',
+          index: idx,
+          value: this.normalizeCodeBlockSelections((m as any).codeBlockSelections)
+        });
       });
     }
 
@@ -1612,8 +1788,12 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
       } catch (_) { /* no-op */ }
       }
 
+      // Summarize large code blocks that were explicitly marked as references in the UI
+      messagesToSend = this.applyCodeBlockSelectionsToMessages(messagesToSend);
+
       // Expand any file reference markers to current file contents
       messagesToSend = this.expandFileReferencesInMessages(messagesToSend);
+      finalPromptTokens = this._getMessagesNumberOfTokens(messagesToSend);
 
       // Choose API flow based on settings.apiType
       if (this._settings.apiType === 'responses') {
