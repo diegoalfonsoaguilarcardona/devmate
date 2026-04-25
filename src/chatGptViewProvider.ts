@@ -4,7 +4,6 @@ import * as fs from 'fs';
 import { promises as fsp } from 'fs';
 import * as yaml from 'js-yaml';
 import OpenAI from "openai";
-import { encodingForModel } from "js-tiktoken";
 import { AuthInfo, Settings, Message, Provider, Prompt, UserMessage, SystemMessage, AssistantMessage, BASE_URL, ModelPricing, SessionCostTotals, TokenUsage } from './types';
 import { newUnifiedDiffStrategy } from 'diff-apply';
 import { ChatCompletionContentPart, ChatCompletionContentPartImage, ChatCompletionContentPartText } from 'openai/resources/chat/completions';
@@ -20,10 +19,12 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
 
   private _response?: string;
   private _totalNumberOfTokens = 0;
+  private _lastUsedTokens = 0;
+  private _lastPromptTokens = 0;
+  private _lastCompletionTokens = 0;
   private _prompt?: string;
   private _fullPrompt?: string;
   private _currentMessageNumber = 0;
-  private _enc = encodingForModel("gpt-4"); //Hardcoded for now
   private _lastResponsesByModel: Map<string, Record<string, string>> = new Map();
   private _workspaceFolderForRelPath: Map<string, string> = new Map();
   private _sessionCostTotals: SessionCostTotals = {
@@ -385,8 +386,7 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
             this._view?.webview.postMessage({ type: 'streamEnd' });
             if (partial) {
               this._messages?.push({ role: "assistant", content: partial, selected: true });
-              const tokenList = this._enc.encode(partial);
-              const chat_response = this._updateChatMessages(this._getMessagesNumberOfTokens(), tokenList.length);
+              const chat_response = this._updateChatMessages(0, 0);
               this._response = chat_response;
               this._view?.webview.postMessage({ type: 'addResponse', value: chat_response });
             }
@@ -467,6 +467,9 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
     this._response = '';
     this._fullPrompt = '';
     this._totalNumberOfTokens = 0;
+    this._lastUsedTokens = 0;
+    this._lastPromptTokens = 0;
+    this._lastCompletionTokens = 0;
     this._lastRequestCost = 0;
     this._sessionCostTotals = {
       requestCount: 0,
@@ -931,19 +934,8 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
     return this.safeStringify(content, 1000);
   }
 
-  private _getMessagesNumberOfTokens(messages?: ReadonlyArray<Message>) {
-
-    let full_promt = "";
-    const sourceMessages = messages || this._messages || [];
-    for (const message of sourceMessages) {
-      if ((message as any).selected === false) {
-        continue;
-      }
-      full_promt += "\n# <u>" + message.role.toUpperCase() + "</u>:\n" + this._messageContentToTokenString(message.content);
-    }
-
-    const tokenList = this._enc.encode(full_promt);
-    return tokenList.length;
+  private _getMessagesNumberOfTokens(_messages?: ReadonlyArray<Message>) {
+    return 0;
   }
 
   private _toNumber(value: any): number {
@@ -987,6 +979,25 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
     return this._toNumber(usage.outputTokens)
       + this._toNumber(usage.reasoningTokens)
       + this._toNumber(usage.outputAudioTokens);
+  }
+
+  private _getRequestTotalTokensFromUsage(usage: TokenUsage): number {
+    const reportedTotal = this._toNumber(usage.totalTokens);
+    if (reportedTotal > 0) return reportedTotal;
+    return this._getPromptTokensFromUsage(usage) + this._getCompletionTokensFromUsage(usage);
+  }
+
+  private _setLastRequestTokenUsage(usage: TokenUsage | null): void {
+    if (!usage) {
+      this._lastPromptTokens = 0;
+      this._lastCompletionTokens = 0;
+      this._lastUsedTokens = 0;
+      return;
+    }
+
+    this._lastPromptTokens = this._getPromptTokensFromUsage(usage);
+    this._lastCompletionTokens = this._getCompletionTokensFromUsage(usage);
+    this._lastUsedTokens = this._getRequestTotalTokensFromUsage(usage);
   }
 
   private _extractResponsesTokenUsage(usage: any): TokenUsage | null {
@@ -1169,6 +1180,7 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
   private _addRequestUsageToSession(usage: TokenUsage, cost: number): void {
     this._sessionCostTotals.requestCount += 1;
     this._sessionCostTotals.totalCost += cost;
+    this._totalNumberOfTokens += this._getRequestTotalTokensFromUsage(usage);
     this._sessionCostTotals.inputTokens += this._toNumber(usage.inputTokens);
     this._sessionCostTotals.outputTokens += this._toNumber(usage.outputTokens);
     this._sessionCostTotals.cachedInputTokens += this._toNumber(usage.cachedInputTokens);
@@ -1179,14 +1191,14 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
     this._sessionCostTotals.outputAudioTokens += this._toNumber(usage.outputAudioTokens);
   }
 
-  private _postStats(promptTokens: number, completionTokens: number): void {
+  private _postStats(_promptTokens?: number, _completionTokens?: number): void {
     this._view?.webview.postMessage({
       type: 'updateStats',
       value: {
         totalTokens: this._totalNumberOfTokens,
-        usedTokens: promptTokens + completionTokens,
-        promptTokens,
-        completionTokens,
+        usedTokens: this._lastUsedTokens,
+        promptTokens: this._lastPromptTokens,
+        completionTokens: this._lastCompletionTokens,
         model: this._settings.model,
         sessionCost: this._sessionCostTotals.totalCost,
         lastRequestCost: this._lastRequestCost,
@@ -1286,8 +1298,7 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
       });
     }
 
-    this._totalNumberOfTokens += promtNumberOfTokens + completionTokens;
-    this._postStats(promtNumberOfTokens, completionTokens);
+    this._postStats();
 
     return chat_response;
   }
@@ -1676,6 +1687,9 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
     let finalPromptTokens = 0;
     let finalCompletionTokens = 0;
     this._lastRequestCost = 0;
+    this._lastUsedTokens = 0;
+    this._lastPromptTokens = 0;
+    this._lastCompletionTokens = 0;
     // Local collector of streamed responses by type for this run/model
     const buckets: Record<string, string> = {};
     const put = (t: string, s: string) => { if (!s) return; buckets[t] = (buckets[t] || '') + s; };
@@ -1885,7 +1899,6 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
             (responsesStream as any)?.inputToolOutputs?.bind(responsesStream);
           const submitToolOutputsFn = (responsesStream as any)?.submitToolOutputs?.bind(responsesStream);
 
-          let completionTokens = 0;
           full_message = "";
           let reasoningDelta = "";
 
@@ -1956,8 +1969,6 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
                 const content = (event as any).delta || "";
                 if (!content) continue;
                 put('output_text', String(content));
-                const tokenList = this._enc.encode(content);
-                completionTokens += tokenList.length;
                 full_message += content;
                 deltaAccumulator += content;
                 flushDelta(false);
@@ -2174,14 +2185,14 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
 
           // Add the final assistant answer as a message
           this._messages?.push({ role: "assistant", content: full_message, selected: true });
-          const tokenList = this._enc.encode(full_message);
           if (full_message) put('output_text', full_message);
           requestUsage = requestUsage || this._extractTokenUsage(finalResponsesPayload);
           if (requestUsage) {
             finalPromptTokens = this._getPromptTokensFromUsage(requestUsage);
             finalCompletionTokens = this._getCompletionTokensFromUsage(requestUsage);
           } else {
-            finalCompletionTokens = tokenList.length;
+            finalPromptTokens = 0;
+            finalCompletionTokens = 0;
           }
           chat_response = this._updateChatMessages(finalPromptTokens, finalCompletionTokens);
         } else {
@@ -2410,14 +2421,14 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
           }
           // Final assistant message
           this._messages?.push({ role: "assistant", content: full_message_g, selected: true });
-          const tokenList = this._enc.encode(full_message_g);
           if (full_message_g) put('assistant_text', full_message_g);
           requestUsage = requestUsage || this._extractTokenUsage(lastUsageMetadata ? { usageMetadata: lastUsageMetadata } : null);
           if (requestUsage) {
             finalPromptTokens = this._getPromptTokensFromUsage(requestUsage);
             finalCompletionTokens = this._getCompletionTokensFromUsage(requestUsage);
           } else {
-            finalCompletionTokens = tokenList.length;
+            finalPromptTokens = 0;
+            finalCompletionTokens = 0;
           }
           chat_response = this._updateChatMessages(finalPromptTokens, finalCompletionTokens);
         } else {
@@ -2441,7 +2452,6 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
 
         this._view?.webview.postMessage({ type: 'streamStart' });
 
-        let completionTokens = 0;
         full_message = "";
         // Collect reasoning deltas if configured (e.g., OpenRouter reasoning models)
         let reasoningDeltaCC = "";
@@ -2488,9 +2498,6 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
             }
             if (!content) continue;
 
-            const tokenList = this._enc.encode(content);
-            completionTokens += tokenList.length;
-            console.log("tokens:", completionTokens);
             full_message += content;
 
             // stream delta (throttled)
@@ -2517,15 +2524,13 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
           if (full_message) put('assistant_text', full_message);
         // Store latest buckets for this provider+model
         this._lastResponsesByModel.set(this.currentModelKey(), buckets);
-        console.log("Full Number of tokens:", completionTokens);
-        const tokenList = this._enc.encode(full_message);
-        console.log("Full Number of tokens tiktoken:", tokenList.length);
         requestUsage = requestUsage || this._extractTokenUsage(lastUsageChunk);
         if (requestUsage) {
           finalPromptTokens = this._getPromptTokensFromUsage(requestUsage);
           finalCompletionTokens = this._getCompletionTokensFromUsage(requestUsage);
         } else {
-          finalCompletionTokens = tokenList.length;
+          finalPromptTokens = 0;
+          finalCompletionTokens = 0;
         }
           chat_response = this._updateChatMessages(finalPromptTokens, finalCompletionTokens)
         }
@@ -2551,14 +2556,13 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
         chat_response = this._updateChatMessages(promtNumberOfTokens, 0);
       }
     }
+    this._setLastRequestTokenUsage(requestUsage);
     if (requestUsage) {
       const requestCost = this._calculateRequestCost(requestUsage);
       this._lastRequestCost = requestCost;
       this._addRequestUsageToSession(requestUsage, requestCost);
-      this._postStats(finalPromptTokens, finalCompletionTokens);
-    } else {
-      this._postStats(finalPromptTokens, finalCompletionTokens);
     }
+    this._postStats();
     this._response = chat_response;
     this._view?.webview.postMessage({ type: 'addResponse', value: chat_response });
     this._view?.webview.postMessage({ type: 'setPrompt', value: '' });
