@@ -114,12 +114,21 @@
         const flushFence = () => {
             const infoString = (fenceInfo || '').trim();
             const labelBase = infoString || 'text';
-            const displayLabel = `🔴 ${labelBase}`;
+            const nonEmptyBodyLines = body.map(line => line.trim()).filter(line => line.length > 0);
             const searchReplacePath = infoString.startsWith('search-replace:')
                 ? infoString.slice('search-replace:'.length).trim()
                 : '';
+            const addFilePath = infoString === 'add-file' && nonEmptyBodyLines.length === 1
+                ? nonEmptyBodyLines[0]
+                : '';
+            const displayLabel = searchReplacePath
+                ? `🔴 ${labelBase}`
+                : (addFilePath ? `🟡 ${labelBase}` : `🔹 ${labelBase}`);
             const searchReplaceAttr = searchReplacePath
                 ? ` data-search-replace-path="${escapeHtmlAttribute(searchReplacePath)}"`
+                : '';
+            const addFileAttr = addFilePath
+                ? ` data-add-file-path="${escapeHtmlAttribute(addFilePath)}"`
                 : '';
             const labelAttr = ` data-code-block-label="${escapeHtmlAttribute(labelBase)}"`;
             const wrapperStyle = 'display:block;margin:0.75rem 0;';
@@ -128,7 +137,7 @@
             out.push(
                 `<div class="code-block-wrapper"${labelAttr} style="${wrapperStyle}">` +
                 `<div class="code-block-label" style="${labelStyle}">${escapeHtml(displayLabel)}</div>` +
-                `<pre${searchReplaceAttr}${labelAttr} style="margin:0;"><code>${escapeHtml(body.join('\n'))}</code></pre>` +
+                `<pre${searchReplaceAttr}${addFileAttr}${labelAttr} style="margin:0;"><code>${escapeHtml(body.join('\n'))}</code></pre>` +
                 `</div>`
             );
         };
@@ -811,12 +820,16 @@
                 e.preventDefault();
                 const pre = this.closest('pre');
                 const searchReplacePath = pre && pre.dataset ? pre.dataset.searchReplacePath : '';
+                const addFilePath = pre && pre.dataset ? pre.dataset.addFilePath : '';
                 const payload = {
                     type: 'codeSelected',
                     value: this.innerText
                 };
                 if (searchReplacePath) {
                     payload.searchReplacePath = searchReplacePath;
+                }
+                if (addFilePath) {
+                    payload.addFilePath = addFilePath;
                 }
                 vscode.postMessage(payload);
             });

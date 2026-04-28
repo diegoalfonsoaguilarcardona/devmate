@@ -146,9 +146,14 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
           }
         case 'codeSelected':
           {
-            // If the clicked code is a diff/patch, ask to apply it; otherwise keep the paste behavior
+            // Handle structured code blocks from chat first; otherwise keep the paste behavior
             const code = String(data.value || '');
             const searchReplacePath = typeof data.searchReplacePath === 'string' ? data.searchReplacePath : undefined;
+            const addFilePath = typeof data.addFilePath === 'string' ? data.addFilePath : undefined;
+            if (addFilePath) {
+              await this.handleAddFileBlockClick(addFilePath);
+              break;
+            }
             if (searchReplacePath || this.isLikelyDiffContent(code)) {
               const choice = await vscode.window.showInformationMessage(
                 'Detected patch content from chat. Do you want to apply this patch to the workspace?',
@@ -1596,6 +1601,44 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
   // Detect server-side tools that do not require client-side tool outputs
   private isServerSideToolName(name?: string): boolean {
     return typeof name === 'string' && /web_search/i.test(name);
+  }
+
+  private normalizeWorkspaceRelativePath(relPath: string): string {
+    return String(relPath || '').replace(/\r\n/g, '\n').trim().replace(/^[.][\\/]/, '').replace(/\\/g, '/');
+  }
+
+  private async handleAddFileBlockClick(requestedPath: string): Promise<void> {
+    const relPath = this.normalizeWorkspaceRelativePath(requestedPath);
+    if (!relPath) return;
+
+    const choice = await vscode.window.showInformationMessage(
+      `Detected add-file request for ${relPath}. What do you want to do?`,
+      { modal: true },
+      'Add File Reference',
+      'Add File Content',
+      'Cancel'
+    );
+
+    if (!choice || choice === 'Cancel') {
+      return;
+    }
+
+    const fileContent = await this.readWorkspaceFileOptional(relPath);
+    if (fileContent == null) {
+      vscode.window.showErrorMessage(`Could not find file in workspace: ${relPath}`);
+      return;
+    }
+
+    const fileExtension = path.extname(relPath).slice(1);
+
+    if (choice === 'Add File Reference') {
+      this.addFileReferenceToChat(relPath, fileExtension);
+      vscode.window.setStatusBarMessage(`[DevMate AI Chat] Added file reference: ${relPath}`, 3000);
+      return;
+    }
+
+    this.addFileToChat(relPath, fileContent, fileExtension);
+    vscode.window.setStatusBarMessage(`[DevMate AI Chat] Added file content: ${relPath}`, 3000);
   }
 
   private async _generate_search_prompt(prompt: string) {
