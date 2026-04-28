@@ -3871,6 +3871,22 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
     this._view?.webview.postMessage({ type: 'addResponse', value: chat_response });
   }
 
+  public addTreeToChat(treeText: string, title = 'Selected tree') {
+    const content = `**${title}**\n\`\`\`text\n${treeText}\n\`\`\``;
+    let newMessage: UserMessage = {
+      role: "user",
+      content,
+      selected: true
+    };
+
+    this._messages?.push(newMessage);
+    const idx = this._messages ? this._messages.length - 1 : 0;
+    this._view?.webview.postMessage({ type: 'setCollapsedForIndex', index: idx });
+
+    const chat_response = this._updateChatMessages(this._getMessagesNumberOfTokens(), 0);
+    this._view?.webview.postMessage({ type: 'addResponse', value: chat_response });
+  }
+
   // Adds a lightweight reference to a file; the actual content is injected only when sending.
   public addFileReferenceToChat(relativePath: string, _fileExtension: string) {
     // Show a readable reference and embed a hidden marker for later expansion.

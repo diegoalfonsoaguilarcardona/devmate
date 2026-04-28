@@ -38,6 +38,7 @@
     "onCommand:devmate.useSelectionAsChat",
     "onCommand:devmate.appendSelectionAsChat",
     "onCommand:devmate.addFileReferenceToChat",
+    "onCommand:devmate.addTreeToChat",
     "onCommand:devmate.appendSelectionMarkdownAsChat",
     "onCommand:devmate.appendSelectionReferencesAsChat",
     "onCommand:devmate.importSelectionJsonAsChat",
@@ -113,6 +114,10 @@
       {
         "command": "devmate.addFileReferenceToChat",
         "title": "DevMate: Add file reference to chat"
+      },
+      {
+        "command": "devmate.addTreeToChat",
+        "title": "DevMate: Insert tree to the chat"
       },
       {
         "command": "devmate.addSelectedPathsAsReferences",
@@ -252,6 +257,11 @@
         },
         {
           "command": "devmate.addFileReferenceToChat",
+          "when": "resourceScheme == file",
+          "group": "navigation"
+        },
+        {
+          "command": "devmate.addTreeToChat",
           "when": "resourceScheme == file",
           "group": "navigation"
         },

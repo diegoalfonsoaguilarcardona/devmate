@@ -161,7 +161,301 @@ export function activate(context: vscode.ExtensionContext) {
         return { added: false, reason: 'binary' };
     }
 
-	// Get the settings from the extension's configuration
+    type ExplorerTreeTarget = {
+        uri: vscode.Uri;
+        workspaceFolder: vscode.WorkspaceFolder;
+        relPath: string;
+        absPath: string;
+        isDirectory: boolean;
+    };
+
+    type ExplorerTreeNode = {
+        name: string;
+        relPath: string;
+        absPath: string;
+        isDirectory: boolean;
+        includeAllChildren: boolean;
+        children: Map<string, ExplorerTreeNode>;
+    };
+
+    function createExplorerTreeNode(name: string, relPath: string, absPath: string, isDirectory: boolean): ExplorerTreeNode {
+        return {
+            name,
+            relPath,
+            absPath,
+            isDirectory,
+            includeAllChildren: false,
+            children: new Map<string, ExplorerTreeNode>()
+        };
+    }
+
+    function compareExplorerTreeTargets(a: ExplorerTreeTarget, b: ExplorerTreeTarget): number {
+        if (a.isDirectory !== b.isDirectory) {
+            return a.isDirectory ? -1 : 1;
+        }
+        return a.relPath.localeCompare(b.relPath);
+    }
+
+    function compareExplorerTreeNodes(a: ExplorerTreeNode, b: ExplorerTreeNode): number {
+        if (a.isDirectory !== b.isDirectory) {
+            return a.isDirectory ? -1 : 1;
+        }
+        return a.name.localeCompare(b.name);
+    }
+
+    function isSameOrDescendantPath(candidate: string, ancestor: string): boolean {
+        if (ancestor === '') return true;
+        return candidate === ancestor || candidate.startsWith(`${ancestor}/`);
+    }
+
+    function collapseExplorerTreeTargets(targets: ExplorerTreeTarget[]): ExplorerTreeTarget[] {
+        const sorted = [...targets].sort((a, b) =>
+            a.workspaceFolder.uri.fsPath.localeCompare(b.workspaceFolder.uri.fsPath)
+            || a.relPath.length - b.relPath.length
+            || compareExplorerTreeTargets(a, b)
+        );
+
+        const collapsed: ExplorerTreeTarget[] = [];
+        for (const target of sorted) {
+            const covered = collapsed.some(existing =>
+                existing.workspaceFolder.uri.fsPath === target.workspaceFolder.uri.fsPath
+                && existing.isDirectory
+                && isSameOrDescendantPath(target.relPath, existing.relPath)
+            );
+            if (!covered) {
+                collapsed.push(target);
+            }
+        }
+
+        return collapsed.sort((a, b) =>
+            a.workspaceFolder.uri.fsPath.localeCompare(b.workspaceFolder.uri.fsPath)
+            || compareExplorerTreeTargets(a, b)
+        );
+    }
+
+    function sortDirentsForTree(entries: fs.Dirent[]): fs.Dirent[] {
+        return [...entries].sort((a, b) => {
+            if (a.isDirectory() !== b.isDirectory()) {
+                return a.isDirectory() ? -1 : 1;
+            }
+            return a.name.localeCompare(b.name);
+        });
+    }
+
+    function sortExplorerTreeNodes(nodes: ExplorerTreeNode[]): ExplorerTreeNode[] {
+        return [...nodes].sort(compareExplorerTreeNodes);
+    }
+
+    async function appendDirectoryContentsLines(lines: string[], absPath: string, prefix: string): Promise<void> {
+        let entries: fs.Dirent[];
+        try {
+            entries = sortDirentsForTree(await fsp.readdir(absPath, { withFileTypes: true }));
+        } catch {
+            lines.push(`${prefix}└── [unreadable]`);
+            return;
+        }
+
+        if (!entries.length) {
+            lines.push(`${prefix}└── [empty]`);
+            return;
+        }
+
+        for (let i = 0; i < entries.length; i++) {
+            const entry = entries[i];
+            await appendFileSystemEntryLines(
+                lines,
+                path.join(absPath, entry.name),
+                entry.name,
+                entry.isDirectory(),
+                prefix,
+                i === entries.length - 1
+            );
+        }
+    }
+
+    async function appendFileSystemEntryLines(
+        lines: string[],
+        absPath: string,
+        name: string,
+        isDirectory: boolean,
+        prefix: string,
+        isLast: boolean
+    ): Promise<void> {
+        const connector = isLast ? '└── ' : '├── ';
+        lines.push(`${prefix}${connector}${name}${isDirectory ? '/' : ''}`);
+
+        if (!isDirectory) {
+            return;
+        }
+
+        const childPrefix = prefix + (isLast ? '    ' : '│   ');
+        await appendDirectoryContentsLines(lines, absPath, childPrefix);
+    }
+
+    async function appendExplorerTreeNodeLines(
+        lines: string[],
+        node: ExplorerTreeNode,
+        prefix: string,
+        isLast: boolean
+    ): Promise<void> {
+        const connector = isLast ? '└── ' : '├── ';
+        lines.push(`${prefix}${connector}${node.name}${node.isDirectory ? '/' : ''}`);
+
+        if (!node.isDirectory) {
+            return;
+        }
+
+        const childPrefix = prefix + (isLast ? '    ' : '│   ');
+
+        if (node.includeAllChildren) {
+            await appendDirectoryContentsLines(lines, node.absPath, childPrefix);
+            return;
+        }
+
+        const children = sortExplorerTreeNodes(Array.from(node.children.values()));
+        if (!children.length) {
+            lines.push(`${childPrefix}└── [empty]`);
+            return;
+        }
+
+        for (let i = 0; i < children.length; i++) {
+            await appendExplorerTreeNodeLines(lines, children[i], childPrefix, i === children.length - 1);
+        }
+    }
+
+    async function buildExplorerSelectionTree(
+        targets: vscode.Uri[]
+    ): Promise<{ treeText: string; itemCount: number; skippedMissing: number; skippedNoWorkspace: number }> {
+        const collected: ExplorerTreeTarget[] = [];
+        const seen = new Set<string>();
+        let skippedMissing = 0;
+        let skippedNoWorkspace = 0;
+
+        for (const uri of targets) {
+            if (!uri || !uri.fsPath) {
+                skippedMissing++;
+                continue;
+            }
+
+            const workspaceFolder = vscode.workspace.getWorkspaceFolder(uri);
+            if (!workspaceFolder) {
+                skippedNoWorkspace++;
+                continue;
+            }
+
+            try {
+                const stat = await fsp.stat(uri.fsPath);
+                const relPath = path.relative(workspaceFolder.uri.fsPath, uri.fsPath).replace(/\\/g, '/');
+                const key = `${workspaceFolder.uri.fsPath}::${relPath}`;
+                if (seen.has(key)) {
+                    continue;
+                }
+                seen.add(key);
+                collected.push({
+                    uri,
+                    workspaceFolder,
+                    relPath,
+                    absPath: uri.fsPath,
+                    isDirectory: stat.isDirectory()
+                });
+            } catch {
+                skippedMissing++;
+            }
+        }
+
+        const collapsed = collapseExplorerTreeTargets(collected);
+        if (!collapsed.length) {
+            return { treeText: '', itemCount: 0, skippedMissing, skippedNoWorkspace };
+        }
+
+        const grouped = new Map<string, { workspaceFolder: vscode.WorkspaceFolder; root: ExplorerTreeNode }>();
+
+        for (const target of collapsed) {
+            const workspaceKey = target.workspaceFolder.uri.fsPath;
+            let group = grouped.get(workspaceKey);
+            if (!group) {
+                group = {
+                    workspaceFolder: target.workspaceFolder,
+                    root: createExplorerTreeNode('', '', target.workspaceFolder.uri.fsPath, true)
+                };
+                grouped.set(workspaceKey, group);
+            }
+
+            if (target.relPath === '') {
+                if (target.isDirectory) {
+                    group.root.includeAllChildren = true;
+                }
+                continue;
+            }
+
+            const segments = target.relPath.split('/').filter(Boolean);
+            let parent = group.root;
+
+            for (let i = 0; i < segments.length; i++) {
+                const segment = segments[i];
+                const currentRelPath = segments.slice(0, i + 1).join('/');
+                const isLeaf = i === segments.length - 1;
+                let child = parent.children.get(segment);
+
+                if (!child) {
+                    child = createExplorerTreeNode(
+                        segment,
+                        currentRelPath,
+                        path.join(target.workspaceFolder.uri.fsPath, currentRelPath),
+                        isLeaf ? target.isDirectory : true
+                    );
+                    parent.children.set(segment, child);
+                }
+
+                if (isLeaf) {
+                    child.isDirectory = target.isDirectory;
+                    if (target.isDirectory) {
+                        child.includeAllChildren = true;
+                    }
+                }
+
+                parent = child;
+            }
+        }
+
+        const groups = Array.from(grouped.values()).sort((a, b) =>
+            a.workspaceFolder.uri.fsPath.localeCompare(b.workspaceFolder.uri.fsPath)
+        );
+
+        const lines: string[] = [];
+        const hasMultipleWorkspaces = groups.length > 1;
+
+        for (let groupIndex = 0; groupIndex < groups.length; groupIndex++) {
+            const group = groups[groupIndex];
+            lines.push(hasMultipleWorkspaces ? `${group.workspaceFolder.name}/` : '.');
+
+            if (group.root.includeAllChildren) {
+                await appendDirectoryContentsLines(lines, group.root.absPath, '');
+            } else {
+                const rootChildren = sortExplorerTreeNodes(Array.from(group.root.children.values()));
+                if (!rootChildren.length) {
+                    lines.push('└── [empty]');
+                } else {
+                    for (let i = 0; i < rootChildren.length; i++) {
+                        await appendExplorerTreeNodeLines(lines, rootChildren[i], '', i === rootChildren.length - 1);
+                    }
+                }
+            }
+
+            if (hasMultipleWorkspaces && groupIndex < groups.length - 1) {
+                lines.push('');
+            }
+        }
+
+        return {
+            treeText: lines.join('\n'),
+            itemCount: collapsed.length,
+            skippedMissing,
+            skippedNoWorkspace
+        };
+    }
+
+    // Get the settings from the extension's configuration
 	const config = vscode.workspace.getConfiguration('devmate');
 
 	// Create a new ChatGPTViewProvider instance and register it with the extension's context
@@ -320,7 +614,31 @@ export function activate(context: vscode.ExtensionContext) {
       })
     ); 
 
-	const commandHandler = (command: string) => {
+    context.subscriptions.push(
+      vscode.commands.registerCommand('devmate.addTreeToChat', async (uri: vscode.Uri, selectedUris?: vscode.Uri[]) => {
+        const targets = (Array.isArray(selectedUris) && selectedUris.length) ? selectedUris : (uri ? [uri] : []);
+        if (!targets.length) {
+          vscode.window.showErrorMessage('No file or folder selected!');
+          return;
+        }
+
+        const treeInfo = await buildExplorerSelectionTree(targets);
+        if (!treeInfo.treeText) {
+          vscode.window.showErrorMessage('Could not build a tree from the selected files/folders.');
+          return;
+        }
+
+        provider.addTreeToChat(treeInfo.treeText);
+
+        const skippedParts: string[] = [];
+        if (treeInfo.skippedMissing) skippedParts.push(`${treeInfo.skippedMissing} missing`);
+        if (treeInfo.skippedNoWorkspace) skippedParts.push(`${treeInfo.skippedNoWorkspace} no-workspace`);
+        const msg = `Added tree for ${treeInfo.itemCount} selected item(s)` + (skippedParts.length ? `; skipped ${skippedParts.join(', ')}` : '');
+        vscode.window.setStatusBarMessage(`[DevMate AI Chat] ${msg}`, 4000);
+      })
+    );
+
+    const commandHandler = (command: string) => {
 		const config = vscode.workspace.getConfiguration('devmate');
 		const prompt = config.get(command) as string;
 		provider.search(prompt);
