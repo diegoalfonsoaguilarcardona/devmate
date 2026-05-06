@@ -3143,20 +3143,20 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
   }
   // Extract the old-start line number from a unified diff hunk header:
   // @@ -<oldStart>[,<oldLen>] +<newStart>[,<newLen}] @@
-  private parseOldStartFromHunkHeader(header: string): number | null {
-    if (typeof header !== 'string') return null;
+  private parseOldStartFromHunkHeader(header: string): number {
+    if (typeof header !== 'string') return -1;
     // Normalize any CRLF
     const h = header.replace(/\r\n/g, '\n');
     // Standard unified diff: @@ -<oldStart>[,<oldLen>] +<newStart>[,<newLen>] @@
     // Many LLMs emit "@@" with no numbers or with bogus numbers; in that case,
-    // we return null so callers know they must *not* trust the header and
+    // we return -1 so callers know they must *not* trust the header and
     // should fall back to header-less fuzzy matching instead of rejecting.
     const m = h.match(/@@\s*-(\d+)(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s*@@/);
     if (m && m[1]) {
       const n = parseInt(m[1], 10);
-      return Number.isFinite(n) && n > 0 ? n : null;
+      return Number.isFinite(n) && n > 0 ? n : -1;
     }
-    return null;
+    return -1;
   }
   // Convert an OpenAI Update File chunk into a unified diff string
   private convertOpenAIPatchUpdateToUnified(u: { path: string; body: string }): string {
@@ -3177,16 +3177,56 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
       const search = (m[2] || '').replace(/\r\n/g, '\n');
       const replace = (m[3] || '').replace(/\r\n/g, '\n');
       const file = fileLine && /[\/\\]/.test(fileLine) ? fileLine : undefined;
-      if (search.length > 0) out.push({ file, search, replace });
+      if (file || search.length > 0) out.push({ file, search, replace });
     }
     return out;
   }
 
+  private dedentCommonIndent(input: string): string {
+    const normalized = input.replace(/\r\n/g, '\n');
+    const lines = normalized.split('\n');
+    let minIndent: number | null = null;
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const indent = (line.match(/^[ \t]*/) || [''])[0].length;
+      minIndent = minIndent === null ? indent : Math.min(minIndent, indent);
+      if (minIndent === 0) break;
+    }
+
+    if (minIndent === null || minIndent === 0) {
+      return normalized;
+    }
+
+    const commonIndent = minIndent;
+
+    return lines.map((line) => {
+      if (!line.trim()) return line;
+      const indent = (line.match(/^[ \t]*/) || [''])[0].length;
+      return line.slice(Math.min(indent, commonIndent));
+    }).join('\n');
+  }
+
   private parseSearchReplaceBody(body: string): { search: string; replace: string } | null {
-    const normalized = body.replace(/\r\n/g, '\n').trimEnd();
-    const match = normalized.match(/^<<<<<<< SEARCH\n([\s\S]*?)\n=======\n([\s\S]*?)\n>>>>>>> REPLACE$/);
-    if (!match) return null;
-    return { search: match[1], replace: match[2] };
+    const normalized = this.dedentCommonIndent(body).trimEnd();
+    const lines = normalized.split('\n');
+
+    const searchMarkerIdx = lines.findIndex((line) => line.trim() === '<<<<<<< SEARCH');
+    if (searchMarkerIdx === -1) return null;
+
+    const separatorIdx = lines.findIndex((line, index) => index > searchMarkerIdx && line.trim() === '=======');
+    if (separatorIdx === -1) return null;
+
+    const replaceMarkerIdx = lines.findIndex((line, index) => index > separatorIdx && line.trim() === '>>>>>>> REPLACE');
+    if (replaceMarkerIdx === -1) return null;
+
+    if (lines.slice(0, searchMarkerIdx).some((line) => line.trim() !== '')) return null;
+    if (lines.slice(replaceMarkerIdx + 1).some((line) => line.trim() !== '')) return null;
+
+    return {
+      search: lines.slice(searchMarkerIdx + 1, separatorIdx).join('\n'),
+      replace: lines.slice(separatorIdx + 1, replaceMarkerIdx).join('\n')
+    };
   }
 
   private extractSearchReplaceBlocks(text: string, fallbackPath?: string): Array<{ path: string; search: string; replace: string }> {
@@ -3239,7 +3279,8 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
       }
 
       let nextText = currentText;
-      if (block.search === '') {
+      const isCreateBlock = currentText === '' && block.search.trim() === '';
+      if (block.search === '' || isCreateBlock) {
         if ((originalByPath.get(relPath) ?? null) !== null && currentText !== '') {
           return { success: false, details: `${relPath}: empty SEARCH is only supported when creating a new empty file.`, count: 0 };
         }
@@ -3787,6 +3828,17 @@ export class ChatGPTViewProvider implements vscode.WebviewViewProvider {
     const explicitFile = !!eb.file;
     const search = eb.search.replace(/\r\n/g, '\n');
     const replace = eb.replace.replace(/\r\n/g, '\n');
+
+    if (explicitFile && search.trim() === '') {
+      const rel = relCandidates[0];
+      const before = await this.readWorkspaceFileOptional(rel);
+      if (before != null && before !== '') {
+        return { success: false, details: `Empty SEARCH can only create ${rel} when it does not exist (or is empty).`, count: 0 };
+      }
+      await this.writeWorkspaceFile(rel, replace);
+      return { success: true, details: `Created ${rel} from empty SEARCH block.`, count: 1 };
+    }
+
     let changed = 0;
     let ambiguous = false;
     for (const rel of relCandidates) {
